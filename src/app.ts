@@ -1,0 +1,38 @@
+import express from "express";
+import cors from "cors";
+import dotenv from "dotenv";
+import authRoutes from "./routes/auth.routes";
+import userRoutes from "./routes/user.routes";
+import clientRoutes from "./routes/client.routes";
+import invoiceRoutes from "./routes/invoice.routes";
+import expenseRoutes from "./routes/expense.routes";
+import contributionRoutes from "./routes/contribution.routes";
+import transactionRoutes from "./routes/transaction.routes";
+import reportRoutes from "./routes/report.routes";
+import dashboardRoutes from "./routes/dashboard.routes";
+import { rateLimit } from "express-rate-limit";
+import helmet from "helmet";
+dotenv.config();
+
+
+const app = express();
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+});
+
+app.use(cors({ origin: "http://localhost:5173", credentials: true }));
+app.use(express.json());
+app.use("/api/auth", authRoutes);
+app.use("/api/user", userRoutes);
+app.use("/api/clients", clientRoutes);
+app.use("/api/invoices", invoiceRoutes);
+app.use("/api/expenses", expenseRoutes);
+app.use("/api/contributions", contributionRoutes);
+app.use("/api/transactions", transactionRoutes);
+app.use("/api/reports", reportRoutes);
+app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/auth", authLimiter);
+app.use(helmet());
+
+export default app;
