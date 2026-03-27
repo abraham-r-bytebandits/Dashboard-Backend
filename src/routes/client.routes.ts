@@ -12,10 +12,10 @@ import { createClientSchema, updateClientSchema } from "../validators/client.val
 
 const router = Router();
 
-router.post("/", authMiddleware, authorize(["ADMIN"]), validate(createClientSchema), createClient);
+router.post("/", authMiddleware, authorize(["SUPER_ADMIN", "ADMIN"]), validate(createClientSchema), createClient);
 router.get("/", authMiddleware, getClients);
 router.get("/:publicId", authMiddleware, getClientById);
-router.put("/:publicId", authMiddleware, authorize(["ADMIN"]), validate(updateClientSchema), updateClient);
-router.delete("/:publicId", authMiddleware, authorize(["ADMIN"]), deleteClient);
+router.put("/:publicId", authMiddleware, authorize(["SUPER_ADMIN", "ADMIN"]), validate(updateClientSchema), updateClient);
+router.delete("/:publicId", authMiddleware, authorize(["SUPER_ADMIN"]), deleteClient);
 
 export default router;

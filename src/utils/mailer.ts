@@ -57,3 +57,50 @@ export const sendOTPEmail = async (
     return false;
   }
 };
+
+export const sendCredentialsEmail = async (
+  to: string,
+  username: string,
+  password: string
+): Promise<boolean> => {
+  try {
+    await transporter.sendMail({
+      from: config.email.user,
+      to,
+      subject: "Your Account Credentials - ZIA Herbal Pro",
+      html: `
+        <div style="font-family: Arial, sans-serif; padding: 20px; background-color: #f6fff0;">
+          <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,0.1);">
+            
+            <div style="background-color: #364A28; padding: 20px; color: #ffffff; text-align: center;">
+              <h2 style="margin: 0;">Account Created</h2>
+            </div>
+
+            <div style="padding: 30px;">
+              <p style="font-size: 16px; color: #333333;">Your account has been created. Use the following credentials to log in:</p>
+
+              <div style="margin: 20px 0; padding: 15px; background-color: #f9f9f9; border-radius: 5px;">
+                <p style="margin: 5px 0;"><strong>Username:</strong> ${username}</p>
+                <p style="margin: 5px 0;"><strong>Password:</strong> ${password}</p>
+              </div>
+
+              <p style="font-size: 14px; color: #777777;">
+                Please change your password after your first login.
+              </p>
+            </div>
+
+            <div style="background-color: #f0f0f0; padding: 20px; text-align: center; font-size: 12px; color: #999999;">
+              © ${new Date().getFullYear()} ZIA Herbal Pro. All rights reserved.
+            </div>
+
+          </div>
+        </div>
+      `,
+    });
+
+    return true;
+  } catch (error) {
+    console.error("Credentials email error:", error);
+    return false;
+  }
+};

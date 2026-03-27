@@ -4,7 +4,9 @@ import prisma from "../prisma/client";
 
 export interface AuthRequest extends Request {
   publicId?: string;
-   role?: string;
+  role?: string;
+  roles?: string[];
+  permissions?: string[];
 }
 
 export const authMiddleware = async (
@@ -31,16 +33,38 @@ export const authMiddleware = async (
     }
 
     const account = await prisma.account.findUnique({
-  where: { publicId: decoded.publicId },
-  include: { roles: { include: { role: true } } },
-});
+      where: { publicId: decoded.publicId },
+      include: {
+        roles: {
+          include: {
+            role: {
+              include: {
+                permissions: {
+                  include: {
+                    permission: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
 
-  if (!account || account.status !== "ACTIVE") {
-  return res.status(401).json({ message: "Unauthorized" });
-}
+    if (!account || account.status !== "ACTIVE") {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
 
     req.publicId = account.publicId;
-    req.role = account.roles[0]?.role.name;
+    req.roles = account.roles.map((r) => r.role.name);
+    req.role = req.roles[0]; // Primary role (backward compat)
+    req.permissions = Array.from(
+      new Set(
+        account.roles.flatMap((r) =>
+          r.role.permissions.map((p) => p.permission.code)
+        )
+      )
+    );
 
     next();
   } catch (error) {
@@ -48,11 +72,28 @@ export const authMiddleware = async (
   }
 };
 
+/**
+ * Role-based authorization middleware.
+ * Checks if the user has at least one of the allowed roles.
+ * Supports role hierarchy: SUPER_ADMIN > ADMIN > USER
+ */
 export const authorize = (allowedRoles: string[]) => {
   return (req: AuthRequest, res: Response, next: NextFunction) => {
-    if (!req.role || !allowedRoles.includes(req.role)) {
-      return res.status(403).json({ message: "Forbidden: insufficient permissions" });
+    const userRoles = req.roles || (req.role ? [req.role] : []);
+
+    // SUPER_ADMIN implicitly has access to everything
+    if (userRoles.includes("SUPER_ADMIN")) {
+      return next();
     }
+
+    const hasRole = userRoles.some((role) => allowedRoles.includes(role));
+
+    if (!hasRole) {
+      return res
+        .status(403)
+        .json({ message: "Forbidden: insufficient permissions" });
+    }
+
     next();
   };
 };

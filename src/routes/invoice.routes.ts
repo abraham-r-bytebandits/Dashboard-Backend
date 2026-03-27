@@ -18,12 +18,12 @@ import {
 
 const router = Router();
 
-router.post("/", authMiddleware, authorize(["ADMIN"]), validate(createInvoiceSchema), createInvoice);
+router.post("/", authMiddleware, authorize(["SUPER_ADMIN", "ADMIN"]), validate(createInvoiceSchema), createInvoice);
 router.get("/", authMiddleware, getInvoices);
 router.get("/:publicId", authMiddleware, getInvoiceById);
-router.put("/:publicId", authMiddleware, authorize(["ADMIN"]), validate(updateInvoiceSchema), updateInvoice);
-router.delete("/:publicId", authMiddleware, authorize(["ADMIN"]), deleteInvoice);
-router.post("/:publicId/payments", authMiddleware, authorize(["ADMIN"]), validate(recordPaymentSchema), recordPayment);
+router.put("/:publicId", authMiddleware, authorize(["SUPER_ADMIN", "ADMIN"]), validate(updateInvoiceSchema), updateInvoice);
+router.delete("/:publicId", authMiddleware, authorize(["SUPER_ADMIN"]), deleteInvoice);
+router.post("/:publicId/payments", authMiddleware, authorize(["SUPER_ADMIN", "ADMIN"]), validate(recordPaymentSchema), recordPayment);
 router.get("/:publicId/payments", authMiddleware, getInvoicePayments);
 
 export default router;

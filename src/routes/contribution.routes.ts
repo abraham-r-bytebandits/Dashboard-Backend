@@ -12,10 +12,10 @@ import { createContributionSchema, updateContributionSchema } from "../validator
 
 const router = Router();
 
-router.post("/", authMiddleware, authorize(["ADMIN"]), validate(createContributionSchema), createContribution);
+router.post("/", authMiddleware, authorize(["SUPER_ADMIN", "ADMIN"]), validate(createContributionSchema), createContribution);
 router.get("/", authMiddleware, getContributions);
 router.get("/:publicId", authMiddleware, getContributionById);
-router.put("/:publicId", authMiddleware, authorize(["ADMIN"]), validate(updateContributionSchema), updateContribution);
-router.delete("/:publicId", authMiddleware, authorize(["ADMIN"]), deleteContribution);
+router.put("/:publicId", authMiddleware, authorize(["SUPER_ADMIN", "ADMIN"]), validate(updateContributionSchema), updateContribution);
+router.delete("/:publicId", authMiddleware, authorize(["SUPER_ADMIN"]), deleteContribution);
 
 export default router;

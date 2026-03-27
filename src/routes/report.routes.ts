@@ -10,11 +10,10 @@ import { authMiddleware, authorize } from "../middlewares/auth.middleware";
 
 const router = Router();
 
-router.post("/", authMiddleware, authorize(["ADMIN"]), createReport);
+router.post("/", authMiddleware, authorize(["SUPER_ADMIN", "ADMIN"]), createReport);
 router.get("/", authMiddleware, getReports);
 router.get("/:publicId", authMiddleware, getReportById);
-// Only ADMIN can update report status/file link via workers
-router.patch("/:publicId/status", authMiddleware, authorize(["ADMIN"]), updateReportStatus);
-router.delete("/:publicId", authMiddleware, authorize(["ADMIN"]), deleteReport);
+router.patch("/:publicId/status", authMiddleware, authorize(["SUPER_ADMIN", "ADMIN"]), updateReportStatus);
+router.delete("/:publicId", authMiddleware, authorize(["SUPER_ADMIN"]), deleteReport);
 
 export default router;

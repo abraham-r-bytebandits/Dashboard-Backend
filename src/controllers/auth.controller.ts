@@ -3,228 +3,21 @@ import bcrypt from "bcryptjs";
 import { generateOTP, hashToken } from "../utils/otp";
 import { sendOTPEmail } from "../utils/mailer";
 import { Request, Response } from "express";
-import { serialize } from "../utils/serialize";
 import { generateAccessToken, generateRefreshToken } from "../utils/jwt";
 import crypto from "crypto";
 import { AuthRequest } from "../middlewares/auth.middleware";
+import axios from "axios";
 
-export const signup = async (req: Request, res: Response) => {
-  try {
-    const {
-      firstName,
-      lastName,
-      email,
-      password,
-      phone,
-    } = req.body;
-
-    if (
-      !firstName ||
-      !lastName ||
-      !email ||
-      !password
-    ) {
-      return res.status(400).json({ message: "Missing required fields" });
-    }
-
-    const existing = await prisma.account.findUnique({
-      where: { email },
-    });
-
-    if (existing) {
-      return res.status(400).json({ message: "Email already exists" });
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    await prisma.$transaction(async (tx) => {
-      const account = await tx.account.create({
-        data: {
-          publicId: crypto.randomUUID(),
-          email,
-          username: email,
-          status: "PENDING_VERIFICATION",
-          isEmailVerified: false,
-          credential: {
-            create: {
-              passwordHash: hashedPassword,
-            },
-          },
-          profile: {
-            create: {
-              firstName,
-              lastName,
-              phone: phone || null,
-            },
-          },
-        },
-      });
-
-      const userRole = await tx.role.findUnique({
-        where: { name: "USER" },
-      });
-
-      if (!userRole) {
-        throw new Error("USER role not found");
-      }
-
-      await tx.accountRole.create({
-        data: {
-          accountPublicId: account.publicId,
-          roleId: userRole.id,
-        },
-      });
-
-      const otp = generateOTP();
-      const tokenHash = hashToken(otp);
-
-      await tx.emailVerification.create({
-        data: {
-          accountPublicId: account.publicId,
-          email,
-          tokenHash,
-          expiresAt: new Date(Date.now() + 10 * 60 * 1000),
-        },
-      });
-
-      await tx.authAuditLog.create({
-        data: {
-          accountPublicId: account.publicId,
-          action: "SIGNUP",
-          ipAddress: req.ip,
-          userAgent: req.headers["user-agent"] as string,
-        },
-      });
-
-      await sendOTPEmail(email, otp);
-    });
-
-    res.json({ message: "OTP sent to email" });
-  } catch (error) {
-    console.error("SIGNUP ERROR:", error);
-    res.status(500).json({ message: "Signup failed" });
-  }
-};
-
-export const verifyEmail = async (req: Request, res: Response) => {
-  const { email, otp } = req.body;
-
-  const account = await prisma.account.findUnique({ where: { email } });
-
-  if (!account) return res.status(400).json({ message: "Invalid email" });
-
-  const hashedOtp = hashToken(otp);
-
-  const record = await prisma.emailVerification.findFirst({
-    where: {
-      accountPublicId: account.publicId,
-      tokenHash: hashedOtp,
-      usedAt: null,
-      expiresAt: { gt: new Date() },
-    },
+// ─── Helper: fetch user role from DB ───────────────────────────────────
+async function getUserRole(publicId: string): Promise<string | null> {
+  const accountRole = await prisma.accountRole.findFirst({
+    where: { accountPublicId: publicId },
+    include: { role: true },
   });
+  return accountRole?.role.name ?? null;
+}
 
-  if (!record) {
-    return res.status(400).json({ message: "Invalid or expired OTP" });
-  }
-
-  await prisma.emailVerification.update({
-    where: { id: record.id },
-    data: { usedAt: new Date() },
-  });
-
-  await prisma.account.update({
-    where: { publicId: account.publicId },
-    data: {
-      isEmailVerified: true,
-      status: "ACTIVE",
-    },
-  });
-  await prisma.authAuditLog.create({
-    data: {
-      accountPublicId: account.publicId,
-      action: "UPDATE",
-      ipAddress: req.ip,
-      userAgent: req.headers["user-agent"] as string,
-    },
-  });
-
-  res.json({ message: "Account verified successfully" });
-};
-
-export const forgotPassword = async (req: Request, res: Response) => {
-  const { email } = req.body;
-
-  const account = await prisma.account.findUnique({ where: { email } });
-
-  if (!account) {
-    return res.status(400).json({ message: "Enter correct email address" });
-  }
-
-  const otp = generateOTP();
-  const hashed = hashToken(otp);
-
-  await prisma.emailVerification.create({
-    data: {
-      accountPublicId: account.publicId,
-      email,
-      tokenHash: hashed,
-      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
-    },
-  });
-
-  await sendOTPEmail(email, otp);
-
-  res.json({ message: "OTP sent" });
-};
-
-export const resetPassword = async (req: Request, res: Response) => {
-  const { email, otp, newPassword } = req.body;
-
-  const account = await prisma.account.findUnique({ where: { email } });
-  if (!account) return res.status(400).json({ message: "Invalid email" });
-
-  const hashedOtp = hashToken(otp);
-
-  const record = await prisma.emailVerification.findFirst({
-    where: {
-      accountPublicId: account.publicId,
-      tokenHash: hashedOtp,
-      usedAt: null,
-      expiresAt: { gt: new Date() },
-    },
-  });
-
-  await prisma.authAuditLog.create({
-    data: {
-      accountPublicId: account.publicId,
-      action: "PASSWORD_CHANGE",
-      ipAddress: req.ip,
-      userAgent: req.headers["user-agent"] as string,
-    },
-  });
-
-  if (!record)
-    return res.status(400).json({ message: "Invalid or expired OTP" });
-
-  const newHashed = await bcrypt.hash(newPassword, 10);
-
-  await prisma.credential.update({
-    where: { accountPublicId: account.publicId },
-    data: {
-      passwordHash: newHashed,
-      passwordChangedAt: new Date(),
-    },
-  });
-
-  await prisma.emailVerification.update({
-    where: { id: record.id },
-    data: { usedAt: new Date() },
-  });
-
-  res.json({ message: "Password updated successfully" });
-};
-
+// ─── LOGIN ─────────────────────────────────────────────────────────────
 export const login = async (req: Request, res: Response) => {
   const { email, password, remember } = req.body;
 
@@ -281,12 +74,138 @@ export const login = async (req: Request, res: Response) => {
     },
   });
 
+  const role = await getUserRole(account.publicId);
+
   res.json({
     accessToken,
     refreshToken,
+    role,
   });
 };
 
+// ─── VERIFY EMAIL ──────────────────────────────────────────────────────
+export const verifyEmail = async (req: Request, res: Response) => {
+  const { email, otp } = req.body;
+
+  const account = await prisma.account.findUnique({ where: { email } });
+
+  if (!account) return res.status(400).json({ message: "Invalid email" });
+
+  const hashedOtp = hashToken(otp);
+
+  const record = await prisma.emailVerification.findFirst({
+    where: {
+      accountPublicId: account.publicId,
+      tokenHash: hashedOtp,
+      usedAt: null,
+      expiresAt: { gt: new Date() },
+    },
+  });
+
+  if (!record) {
+    return res.status(400).json({ message: "Invalid or expired OTP" });
+  }
+
+  await prisma.emailVerification.update({
+    where: { id: record.id },
+    data: { usedAt: new Date() },
+  });
+
+  await prisma.account.update({
+    where: { publicId: account.publicId },
+    data: {
+      isEmailVerified: true,
+      status: "ACTIVE",
+    },
+  });
+  await prisma.authAuditLog.create({
+    data: {
+      accountPublicId: account.publicId,
+      action: "UPDATE",
+      ipAddress: req.ip,
+      userAgent: req.headers["user-agent"] as string,
+    },
+  });
+
+  res.json({ message: "Account verified successfully" });
+};
+
+// ─── FORGOT PASSWORD ───────────────────────────────────────────────────
+export const forgotPassword = async (req: Request, res: Response) => {
+  const { email } = req.body;
+
+  const account = await prisma.account.findUnique({ where: { email } });
+
+  if (!account) {
+    return res.status(400).json({ message: "Enter correct email address" });
+  }
+
+  const otp = generateOTP();
+  const hashed = hashToken(otp);
+
+  await prisma.emailVerification.create({
+    data: {
+      accountPublicId: account.publicId,
+      email,
+      tokenHash: hashed,
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+    },
+  });
+
+  await sendOTPEmail(email, otp);
+
+  res.json({ message: "OTP sent" });
+};
+
+// ─── RESET PASSWORD ────────────────────────────────────────────────────
+export const resetPassword = async (req: Request, res: Response) => {
+  const { email, otp, newPassword } = req.body;
+
+  const account = await prisma.account.findUnique({ where: { email } });
+  if (!account) return res.status(400).json({ message: "Invalid email" });
+
+  const hashedOtp = hashToken(otp);
+
+  const record = await prisma.emailVerification.findFirst({
+    where: {
+      accountPublicId: account.publicId,
+      tokenHash: hashedOtp,
+      usedAt: null,
+      expiresAt: { gt: new Date() },
+    },
+  });
+
+  await prisma.authAuditLog.create({
+    data: {
+      accountPublicId: account.publicId,
+      action: "PASSWORD_CHANGE",
+      ipAddress: req.ip,
+      userAgent: req.headers["user-agent"] as string,
+    },
+  });
+
+  if (!record)
+    return res.status(400).json({ message: "Invalid or expired OTP" });
+
+  const newHashed = await bcrypt.hash(newPassword, 10);
+
+  await prisma.credential.update({
+    where: { accountPublicId: account.publicId },
+    data: {
+      passwordHash: newHashed,
+      passwordChangedAt: new Date(),
+    },
+  });
+
+  await prisma.emailVerification.update({
+    where: { id: record.id },
+    data: { usedAt: new Date() },
+  });
+
+  res.json({ message: "Password updated successfully" });
+};
+
+// ─── REFRESH TOKEN ─────────────────────────────────────────────────────
 export const refresh = async (req: Request, res: Response) => {
   const { refreshToken } = req.body;
 
@@ -309,6 +228,7 @@ export const refresh = async (req: Request, res: Response) => {
   res.json({ accessToken });
 };
 
+// ─── LOGOUT ────────────────────────────────────────────────────────────
 export const logout = async (req: Request, res: Response) => {
   const { refreshToken } = req.body;
 
@@ -339,72 +259,33 @@ export const logout = async (req: Request, res: Response) => {
   res.json({ message: "Logged out" });
 };
 
-import axios from "axios";
-
+// ─── GOOGLE AUTH (LOGIN ONLY — NO SIGNUP) ──────────────────────────────
 export const googleAuth = async (req: Request, res: Response) => {
-  const { credential } = req.body;
+  try {
+    const { credential } = req.body;
 
-  const googleRes = await axios.get(
-    `https://oauth2.googleapis.com/tokeninfo?id_token=${credential}`
-  );
+    const googleRes = await axios.get(
+      `https://oauth2.googleapis.com/tokeninfo?id_token=${credential}`
+    );
 
-  const { email, sub } = googleRes.data;
+    const { email, sub } = googleRes.data;
 
-  let account = await prisma.account.findUnique({
-    where: { email },
-  });
-
-  if (account && account.status === "DELETED") {
-    await prisma.account.delete({
-      where: { publicId: account.publicId },
+    // Only allow login for existing accounts
+    const account = await prisma.account.findUnique({
+      where: { email },
     });
 
-    account = null;
-  }
-
-  if (!account) {
-    account = await prisma.$transaction(async (tx) => {
-      const newAccount = await tx.account.create({
-        data: {
-          publicId: crypto.randomUUID(),
-          email,
-          username: email,
-          status: "ACTIVE",
-          isEmailVerified: true,
-          profile: {
-            create: {
-              firstName: googleRes.data.given_name || "",
-              lastName: googleRes.data.family_name || "",
-              profileImage: googleRes.data.picture || null,
-            },
-          },
-        },
+    if (!account) {
+      return res.status(403).json({
+        message: "Account not found. Contact your administrator to create an account.",
       });
+    }
 
-      const userRole = await tx.role.findUnique({
-        where: { name: "USER" },
-      });
+    if (account.status !== "ACTIVE") {
+      return res.status(403).json({ message: "Account not active" });
+    }
 
-      if (userRole) {
-        await tx.accountRole.create({
-          data: {
-            accountPublicId: newAccount.publicId,
-            roleId: userRole.id,
-          },
-        });
-      }
-
-      await tx.authProvider.create({
-        data: {
-          accountPublicId: newAccount.publicId,
-          provider: "GOOGLE",
-          providerUserId: sub,
-        },
-      });
-
-      return newAccount;
-    });
-  } else {
+    // Link Google provider if not already linked
     const existingProvider = await prisma.authProvider.findFirst({
       where: {
         accountPublicId: account.publicId,
@@ -421,19 +302,45 @@ export const googleAuth = async (req: Request, res: Response) => {
         },
       });
     }
+
+    const accessToken = generateAccessToken(account.publicId);
+    const refreshToken = generateRefreshToken(account.publicId);
+
+    const role = await getUserRole(account.publicId);
+
+    await prisma.authAuditLog.create({
+      data: {
+        accountPublicId: account.publicId,
+        action: "LOGIN",
+        ipAddress: req.ip,
+        userAgent: req.headers["user-agent"] as string,
+      },
+    });
+
+    res.json({ accessToken, refreshToken, role });
+  } catch (error) {
+    console.error("GOOGLE AUTH ERROR:", error);
+    res.status(500).json({ message: "Google authentication failed" });
   }
-
-  const accessToken = generateAccessToken(account.publicId);
-  const refreshToken = generateRefreshToken(account.publicId);
-
-  res.json({ accessToken, refreshToken });
 };
 
+// ─── GET ME (with roles & permissions) ─────────────────────────────────
 export const getMe = async (req: AuthRequest, res: Response) => {
   const account = await prisma.account.findUnique({
     where: { publicId: req.publicId },
     include: {
       profile: true,
+      roles: {
+        include: {
+          role: {
+            include: {
+              permissions: {
+                include: { permission: true },
+              },
+            },
+          },
+        },
+      },
     },
   });
 
@@ -441,9 +348,35 @@ export const getMe = async (req: AuthRequest, res: Response) => {
     return res.status(404).json({ message: "User not found" });
   }
 
-  res.json(serialize(account));
+  const formattedAccount = {
+    id: account.id.toString(),
+    publicId: account.publicId,
+    email: account.email,
+    username: account.username,
+    status: account.status,
+    isEmailVerified: account.isEmailVerified,
+    lastLoginAt: account.lastLoginAt,
+    createdAt: account.createdAt,
+    profile: account.profile
+      ? {
+          ...account.profile,
+          id: account.profile.id.toString(),
+        }
+      : null,
+    roles: account.roles.map((r) => r.role.name),
+    permissions: Array.from(
+      new Set(
+        account.roles.flatMap((r) =>
+          r.role.permissions.map((p) => p.permission.code)
+        )
+      )
+    ),
+  };
+
+  res.json(formattedAccount);
 };
 
+// ─── SEND LOGIN OTP ────────────────────────────────────────────────────
 export const sendLoginOtp = async (req: Request, res: Response) => {
   try {
     const { email } = req.body;
@@ -484,6 +417,7 @@ export const sendLoginOtp = async (req: Request, res: Response) => {
   }
 };
 
+// ─── VERIFY LOGIN OTP ──────────────────────────────────────────────────
 export const verifyLoginOtp = async (req: Request, res: Response) => {
   const { email, otp, remember } = req.body;
 
@@ -538,5 +472,7 @@ export const verifyLoginOtp = async (req: Request, res: Response) => {
     },
   });
 
-  res.json({ accessToken, refreshToken });
+  const role = await getUserRole(account.publicId);
+
+  res.json({ accessToken, refreshToken, role });
 };

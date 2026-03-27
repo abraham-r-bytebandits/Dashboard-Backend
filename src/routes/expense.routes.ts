@@ -13,11 +13,11 @@ import { createExpenseSchema, updateExpenseSchema } from "../validators/expense.
 
 const router = Router();
 
-router.post("/", authMiddleware, authorize(["ADMIN"]), validate(createExpenseSchema), createExpense);
+router.post("/", authMiddleware, authorize(["SUPER_ADMIN", "ADMIN"]), validate(createExpenseSchema), createExpense);
 router.get("/", authMiddleware, getExpenses);
 router.get("/:publicId", authMiddleware, getExpenseById);
-router.put("/:publicId", authMiddleware, authorize(["ADMIN"]), validate(updateExpenseSchema), updateExpense);
-router.patch("/:publicId/pay", authMiddleware, authorize(["ADMIN"]), markExpenseAsPaid);
-router.delete("/:publicId", authMiddleware, authorize(["ADMIN"]), deleteExpense);
+router.put("/:publicId", authMiddleware, authorize(["SUPER_ADMIN", "ADMIN"]), validate(updateExpenseSchema), updateExpense);
+router.patch("/:publicId/pay", authMiddleware, authorize(["SUPER_ADMIN", "ADMIN"]), markExpenseAsPaid);
+router.delete("/:publicId", authMiddleware, authorize(["SUPER_ADMIN"]), deleteExpense);
 
 export default router;
