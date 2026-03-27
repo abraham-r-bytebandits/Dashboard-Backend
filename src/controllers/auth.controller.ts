@@ -19,10 +19,20 @@ async function getUserRole(publicId: string): Promise<string | null> {
 
 // ─── LOGIN ─────────────────────────────────────────────────────────────
 export const login = async (req: Request, res: Response) => {
-  const { email, password, remember } = req.body;
+  const { email, phone, password, remember } = req.body;
+  const identifier = email || phone;
 
-  const account = await prisma.account.findUnique({
-    where: { email },
+  if (!identifier) {
+    return res.status(400).json({ message: "Email or phone is required" });
+  }
+
+  const account = await prisma.account.findFirst({
+    where: {
+      OR: [
+        { email: identifier },
+        { profile: { phone: identifier } }
+      ]
+    },
     include: { credential: true },
   });
 
