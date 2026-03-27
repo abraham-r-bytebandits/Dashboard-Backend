@@ -44,7 +44,9 @@ INSERT INTO `Role` (`id`, `name`, `description`) VALUES
 (1, 'SUPER_ADMIN', 'Full system access'),
 (2, 'MANAGER', 'Can manage clients, invoices, expenses'),
 (3, 'ACCOUNTANT', 'Financial data access'),
-(4, 'VIEWER', 'Read-only access');
+(4, 'VIEWER', 'Read-only access'),
+(5, 'USER', 'User access'),
+(6, 'ADMIN', 'Admin access');
 
 INSERT INTO `Permission` (`id`, `code`, `description`) VALUES
 (1, 'users:read', 'View users'),
