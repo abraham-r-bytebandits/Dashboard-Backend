@@ -8,7 +8,6 @@ import { sendSuccess, sendError } from "../utils/response";
 const storage = multer.memoryStorage();
 export const upload = multer({
   storage,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
 });
 
 // The Controller Function to handle conversion
