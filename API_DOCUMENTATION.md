@@ -28,11 +28,13 @@ Login with email & password. Returns JWT tokens + role.
 **Body:**
 ```json
 {
-  "email": "admin@example.com",
+  "email": "admin@example.com", // OR use "phone": "+919876543210"
   "password": "password123",
   "remember": true
 }
 ```
+> **Note:** The backend accepts either an `email` field or a `phone` field. For convenience, if your frontend form only has a single text input, passing a mobile number directly into the `"email"` field will also work natively.
+
 **Response:** `{ "accessToken": "...", "refreshToken": "...", "role": "SUPER_ADMIN" }`
 
 ---

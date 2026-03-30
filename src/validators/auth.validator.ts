@@ -9,9 +9,12 @@ export const signupSchema = z.object({
 });
 
 export const loginSchema = z.object({
-  email: z.string().email("Invalid email address"),
+  email: z.string().optional(),
+  phone: z.string().optional(),
   password: z.string().min(1, "Password is required"),
   remember: z.boolean().optional(),
+}).refine(data => data.email || data.phone, {
+  message: "Either email or phone is required",
 });
 
 export const verifyEmailSchema = z.object({
