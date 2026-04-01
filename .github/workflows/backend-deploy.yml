@@ -10,23 +10,29 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # 1. Checkout code
       - name: Checkout
         uses: actions/checkout@v4
 
+      # 2. Setup Node.js
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 18
 
+      # 3. Install dependencies
       - name: Install dependencies
         run: npm ci
 
+      # 4. Generate Prisma Client
       - name: Prisma generate
         run: npx prisma generate
 
+      # 5. Build project
       - name: Build backend
         run: npm run build
 
+      # 6. Copy files to EC2
       - name: Copy files to EC2
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -36,14 +42,29 @@ jobs:
           source: "dist,package.json,package-lock.json,prisma"
           target: "/home/ec2-user/backend"
 
-      - name: Run backend on EC2
+      # 7. SSH into EC2 and deploy
+      - name: Deploy on EC2
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
+            set -e
+
             cd ~/backend
+
+            echo "📦 Installing production dependencies..."
             npm ci --omit=dev
+
+            echo "⚙️ Running Prisma migrations..."
             npx prisma migrate deploy
-            pm2 restart backend || pm2 start dist/server.js --name backend
+
+            echo "🔁 Restarting PM2..."
+            pm2 describe backend > /dev/null \
+              && pm2 restart backend \
+              || pm2 start dist/server.js --name backend
+
+            pm2 save
+
+            echo "✅ Deployment successful!"
