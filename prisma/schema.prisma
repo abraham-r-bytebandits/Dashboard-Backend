@@ -138,14 +138,14 @@ model Account {
   authAuditLogs     AuthAuditLog[]
   activityAuditLogs ActivityAuditLog[]
 
-  createdClients        Client[]            @relation("CreatedClients")
-  createdInvoices       Invoice[]           @relation("CreatedInvoices")
-  createdExpenses       Expense[]           @relation("CreatedExpenses")
-  paidExpenses          Expense[]           @relation("PaidExpenses")
-  createdContributions  Contribution[]      @relation("CreatedContributions")
-  createdTransactions   Transaction[]       @relation("CreatedTransactions")
-  generatedReports      Report[]            @relation("GeneratedReports")
-  createdSites          Site[]              @relation("CreatedSites")
+  createdClients       Client[]       @relation("CreatedClients")
+  createdInvoices      Invoice[]      @relation("CreatedInvoices")
+  createdExpenses      Expense[]      @relation("CreatedExpenses")
+  paidExpenses         Expense[]      @relation("PaidExpenses")
+  createdContributions Contribution[] @relation("CreatedContributions")
+  createdTransactions  Transaction[]  @relation("CreatedTransactions")
+  generatedReports     Report[]       @relation("GeneratedReports")
+  createdSites         Site[]         @relation("CreatedSites")
 
   @@index([email])
   @@index([username])
@@ -271,13 +271,13 @@ model UserProfile {
 //////////////////////////////////////////////////
 
 model Client {
-  id          BigInt   @id @default(autoincrement())
-  publicId    String   @unique @default(uuid())
+  id          BigInt  @id @default(autoincrement())
+  publicId    String  @unique @default(uuid())
   name        String
   email       String?
   phone       String?
   companyName String?
-  avatar      String?  @db.Text
+  avatar      String? @db.Text
 
   billingAddressLine1 String?
   billingAddressLine2 String?
@@ -286,13 +286,13 @@ model Client {
   country             String?
   postalCode          String?
 
-  notes       String?  @db.Text
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  notes     String?  @db.Text
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   createdByPublicId String?
-  createdBy         Account?   @relation("CreatedClients", fields: [createdByPublicId], references: [publicId], onDelete: SetNull)
+  createdBy         Account? @relation("CreatedClients", fields: [createdByPublicId], references: [publicId], onDelete: SetNull)
 
   invoices ClientInvoice[]
 
@@ -313,24 +313,24 @@ model Invoice {
 
   title          String?
   featureProject String?
-  description    String?       @db.Text
+  description    String? @db.Text
 
-  subtotal       Decimal       @db.Decimal(12, 2)
-  taxAmount      Decimal       @default(0.00) @db.Decimal(12, 2)
-  discountAmount Decimal       @default(0.00) @db.Decimal(12, 2)
-  totalAmount    Decimal       @db.Decimal(12, 2)
-  receivedAmount Decimal       @default(0.00) @db.Decimal(12, 2)
-  balanceDue     Decimal       @db.Decimal(12, 2)
+  subtotal       Decimal @db.Decimal(12, 2)
+  taxAmount      Decimal @default(0.00) @db.Decimal(12, 2)
+  discountAmount Decimal @default(0.00) @db.Decimal(12, 2)
+  totalAmount    Decimal @db.Decimal(12, 2)
+  receivedAmount Decimal @default(0.00) @db.Decimal(12, 2)
+  balanceDue     Decimal @db.Decimal(12, 2)
 
-  currency    String           @default("INR")
-  issuedDate  DateTime
-  dueDate     DateTime
-  paidAt      DateTime?
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
+  currency   String    @default("INR")
+  issuedDate DateTime
+  dueDate    DateTime
+  paidAt     DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
   createdByPublicId String?
-  createdBy         Account?        @relation("CreatedInvoices", fields: [createdByPublicId], references: [publicId], onDelete: SetNull)
+  createdBy         Account? @relation("CreatedInvoices", fields: [createdByPublicId], references: [publicId], onDelete: SetNull)
 
   clients      ClientInvoice[]
   items        InvoiceItem[]
@@ -359,13 +359,13 @@ model InvoiceItem {
   id        BigInt @id @default(autoincrement())
   invoiceId BigInt
 
-  itemName     String
-  description  String? @db.Text
-  quantity     Int     @default(1)
-  unitPrice    Decimal @db.Decimal(12, 2)
-  taxPercent   Decimal @default(0.00) @db.Decimal(5, 2)
-  discount     Decimal @default(0.00) @db.Decimal(12, 2)
-  total        Decimal @db.Decimal(12, 2)
+  itemName    String
+  description String? @db.Text
+  quantity    Int     @default(1)
+  unitPrice   Decimal @db.Decimal(12, 2)
+  taxPercent  Decimal @default(0.00) @db.Decimal(5, 2)
+  discount    Decimal @default(0.00) @db.Decimal(12, 2)
+  total       Decimal @db.Decimal(12, 2)
 
   createdAt DateTime @default(now())
 
@@ -375,8 +375,8 @@ model InvoiceItem {
 }
 
 model InvoicePayment {
-  id        BigInt        @id @default(autoincrement())
-  publicId  String        @unique @default(uuid())
+  id        BigInt @id @default(autoincrement())
+  publicId  String @unique @default(uuid())
   invoiceId BigInt
 
   amount        Decimal       @db.Decimal(12, 2)
@@ -387,7 +387,7 @@ model InvoicePayment {
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
-  invoice      Invoice        @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  invoice      Invoice       @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   transactions Transaction[]
 
   @@index([invoiceId])
@@ -399,36 +399,36 @@ model InvoicePayment {
 //////////////////////////////////////////////////
 
 model Expense {
-  id          BigInt        @id @default(autoincrement())
-  publicId    String        @unique @default(uuid())
-  expenseId   String        @unique              // Auto-generated: #FIX001 or #OPE001
-  expenseType ExpenseType   @default(OPERATIONAL)
+  id          BigInt      @id @default(autoincrement())
+  publicId    String      @unique @default(uuid())
+  expenseId   String      @unique // Auto-generated: #FIX001 or #OPE001
+  expenseType ExpenseType @default(OPERATIONAL)
   title       String
   category    String
-  description String?       @db.Text
-  comments    String?       @db.Text
+  description String?     @db.Text
+  comments    String?     @db.Text
 
   amount      Decimal       @db.Decimal(12, 2)
   expenseDate DateTime
   dueDate     DateTime?
   status      ExpenseStatus @default(PENDING)
 
-  recurring   Boolean       @default(false)
-  frequency   String?                            // "monthly" or "yearly"
+  recurring Boolean @default(false)
+  frequency String? // "monthly" or "yearly"
 
-  vendorName     String?
-  paymentMethod  PaymentMethod?
-  receiptUrl     String?       @db.Text
-  notes          String?       @db.Text
+  vendorName    String?
+  paymentMethod PaymentMethod?
+  receiptUrl    String?        @db.Text
+  notes         String?        @db.Text
 
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  paidByPublicId    String?
-  paidBy            Account?       @relation("PaidExpenses", fields: [paidByPublicId], references: [publicId], onDelete: SetNull)
+  paidByPublicId String?
+  paidBy         Account? @relation("PaidExpenses", fields: [paidByPublicId], references: [publicId], onDelete: SetNull)
 
   createdByPublicId String?
-  createdBy         Account?       @relation("CreatedExpenses", fields: [createdByPublicId], references: [publicId], onDelete: SetNull)
+  createdBy         Account? @relation("CreatedExpenses", fields: [createdByPublicId], references: [publicId], onDelete: SetNull)
 
   transactions Transaction[]
 
@@ -446,19 +446,19 @@ model Expense {
 //////////////////////////////////////////////////
 
 model Contribution {
-  id          BigInt   @id @default(autoincrement())
-  publicId    String   @unique @default(uuid())
-  contributorName String
-  amount      Decimal  @db.Decimal(12, 2)
+  id               BigInt   @id @default(autoincrement())
+  publicId         String   @unique @default(uuid())
+  contributorName  String
+  amount           Decimal  @db.Decimal(12, 2)
   contributionDate DateTime
-  notes       String?  @db.Text
-  color       String?  // optional UI color like #2563eb
+  notes            String?  @db.Text
+  color            String? // optional UI color like #2563eb
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   createdByPublicId String?
-  createdBy         Account?      @relation("CreatedContributions", fields: [createdByPublicId], references: [publicId], onDelete: SetNull)
+  createdBy         Account? @relation("CreatedContributions", fields: [createdByPublicId], references: [publicId], onDelete: SetNull)
 
   transactions Transaction[]
 
@@ -472,32 +472,32 @@ model Contribution {
 //////////////////////////////////////////////////
 
 model Transaction {
-  id          BigInt              @id @default(autoincrement())
-  publicId    String              @unique @default(uuid())
-  type        TransactionType
-  category    TransactionCategory
+  id       BigInt              @id @default(autoincrement())
+  publicId String              @unique @default(uuid())
+  type     TransactionType
+  category TransactionCategory
 
-  amount      Decimal             @db.Decimal(12, 2)
-  currency    String              @default("INR")
+  amount      Decimal  @db.Decimal(12, 2)
+  currency    String   @default("INR")
   date        DateTime
-  description String?             @db.Text
+  description String?  @db.Text
   referenceNo String?
 
-  invoiceId         BigInt?
-  invoicePaymentId  BigInt?
-  expenseId         BigInt?
-  contributionId    BigInt?
+  invoiceId        BigInt?
+  invoicePaymentId BigInt?
+  expenseId        BigInt?
+  contributionId   BigInt?
 
   createdByPublicId String?
-  createdBy         Account?          @relation("CreatedTransactions", fields: [createdByPublicId], references: [publicId], onDelete: SetNull)
+  createdBy         Account? @relation("CreatedTransactions", fields: [createdByPublicId], references: [publicId], onDelete: SetNull)
 
-  invoice        Invoice?         @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
-  invoicePayment InvoicePayment?  @relation(fields: [invoicePaymentId], references: [id], onDelete: SetNull)
-  expense        Expense?         @relation(fields: [expenseId], references: [id], onDelete: SetNull)
-  contribution   Contribution?    @relation(fields: [contributionId], references: [id], onDelete: SetNull)
+  invoice        Invoice?        @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  invoicePayment InvoicePayment? @relation(fields: [invoicePaymentId], references: [id], onDelete: SetNull)
+  expense        Expense?        @relation(fields: [expenseId], references: [id], onDelete: SetNull)
+  contribution   Contribution?   @relation(fields: [contributionId], references: [id], onDelete: SetNull)
 
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime            @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([type])
   @@index([category])
@@ -514,20 +514,20 @@ model Transaction {
 //////////////////////////////////////////////////
 
 model Report {
-  id          BigInt       @id @default(autoincrement())
-  publicId    String       @unique @default(uuid())
-  name        String
-  type        ReportType
-  status      ReportStatus @default(PENDING)
+  id       BigInt       @id @default(autoincrement())
+  publicId String       @unique @default(uuid())
+  name     String
+  type     ReportType
+  status   ReportStatus @default(PENDING)
 
-  fromDate    DateTime?
-  toDate      DateTime?
-  format      String       // pdf, csv, xlsx
-  fileUrl     String?      @db.Text
-  errorMessage String?     @db.Text
+  fromDate     DateTime?
+  toDate       DateTime?
+  format       String // pdf, csv, xlsx
+  fileUrl      String?   @db.Text
+  errorMessage String?   @db.Text
 
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   generatedByPublicId String?
   generatedBy         Account? @relation("GeneratedReports", fields: [generatedByPublicId], references: [publicId], onDelete: SetNull)
@@ -575,12 +575,12 @@ model ActivityAuditLog {
 //////////////////////////////////////////////////
 
 model Site {
-  id        BigInt   @id @default(autoincrement())
-  publicId  String   @unique @default(uuid())
-  name      String
-  userName  String
-  url       String
-  password  String
+  id       BigInt  @id @default(autoincrement())
+  publicId String  @unique @default(uuid())
+  name     String
+  userName String
+  url      String?
+  password String
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
