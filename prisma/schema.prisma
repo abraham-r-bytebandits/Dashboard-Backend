@@ -47,6 +47,7 @@ enum EntityType {
   CONTRIBUTION
   TRANSACTION
   REPORT
+  SITE
 }
 
 enum InvoiceStatus {
@@ -144,6 +145,7 @@ model Account {
   createdContributions  Contribution[]      @relation("CreatedContributions")
   createdTransactions   Transaction[]       @relation("CreatedTransactions")
   generatedReports      Report[]            @relation("GeneratedReports")
+  createdSites          Site[]              @relation("CreatedSites")
 
   @@index([email])
   @@index([username])
@@ -566,4 +568,26 @@ model ActivityAuditLog {
   createdAt DateTime @default(now())
 
   account Account? @relation(fields: [accountPublicId], references: [publicId])
+}
+
+//////////////////////////////////////////////////
+// SITES
+//////////////////////////////////////////////////
+
+model Site {
+  id        BigInt   @id @default(autoincrement())
+  publicId  String   @unique @default(uuid())
+  name      String
+  userName  String
+  url       String
+  password  String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  createdByPublicId String?
+  createdBy         Account? @relation("CreatedSites", fields: [createdByPublicId], references: [publicId], onDelete: SetNull)
+
+  @@index([createdByPublicId])
+  @@index([name])
 }
