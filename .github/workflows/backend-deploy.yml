@@ -39,7 +39,9 @@ jobs:
 
       # 5.6. Configure AWS credentials
       - name: Configure AWS Credentials
-        if: ${{ secrets.AWS_ACCESS_KEY_ID != '' }}
+        env:
+          AWS_KEY: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        if: ${{ env.AWS_KEY != '' }}
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -48,7 +50,9 @@ jobs:
 
       # 5.7. Add Runner IP to EC2 Security Group
       - name: Add Runner IP to Security Group
-        if: ${{ secrets.AWS_SG_ID != '' }}
+        env:
+          SG_ID: ${{ secrets.AWS_SG_ID }}
+        if: ${{ env.SG_ID != '' }}
         run: |
           aws ec2 authorize-security-group-ingress \
             --group-id ${{ secrets.AWS_SG_ID }} \
@@ -95,7 +99,9 @@ jobs:
 
       # 8. Remove Runner IP from Security Group
       - name: Remove Runner IP from Security Group
-        if: ${{ always() && secrets.AWS_SG_ID != '' }}
+        env:
+          SG_ID: ${{ secrets.AWS_SG_ID }}
+        if: ${{ always() && env.SG_ID != '' }}
         run: |
           aws ec2 revoke-security-group-ingress \
             --group-id ${{ secrets.AWS_SG_ID }} \
