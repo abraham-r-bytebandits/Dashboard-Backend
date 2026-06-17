@@ -6,9 +6,7 @@ export const createContactSchema = z.object({
   phone: z.string().optional().or(z.literal("")),
   website: z.string().optional().or(z.literal("")),
   message: z.string().min(1, "Message is required"),
-  consent: z.boolean().refine((v) => v === true, {
-    message: "Consent is required",
-  }),
+  consent: z.boolean().optional(),
   source: z.string().min(1, "Source is required"),
 });
 
