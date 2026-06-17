@@ -3,8 +3,8 @@ import bcrypt from "bcryptjs";
 import crypto from "crypto";
 
 async function createAdmin() {
-  const email = "kousiksrvnn@gmail.com";
-  const password = "admin@123"; 
+  const email = "abrahambillclinton@gmail.com";
+  const password = "admin@123";
 
   const existing = await prisma.account.findUnique({
     where: { email },
@@ -17,16 +17,16 @@ async function createAdmin() {
 
   const hashedPassword = await bcrypt.hash(password, 10);
 
-  
+
   let adminRole = await prisma.role.findUnique({
-    where: { name: "ADMIN" },
+    where: { name: "SUPER_ADMIN" },
   });
 
   if (!adminRole) {
     adminRole = await prisma.role.create({
       data: {
-        name: "ADMIN",
-        description: "System Administrator",
+        name: "SUPER_ADMIN",
+        description: "Super Administrator",
       },
     });
   }

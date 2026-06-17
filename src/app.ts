@@ -13,6 +13,7 @@ import reportRoutes from "./routes/report.routes";
 import dashboardRoutes from "./routes/dashboard.routes";
 import imageRoutes from "./routes/image.routes";
 import siteRoutes from "./routes/site.routes";
+import contactRoutes from "./routes/contact.routes";
 import { rateLimit } from "express-rate-limit";
 import helmet from "helmet";
 dotenv.config();
@@ -63,6 +64,7 @@ app.use("/api/reports", reportRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/image", imageRoutes);
 app.use("/api/sites", siteRoutes);
+app.use("/api/contacts", contactRoutes);
 app.use("/api/auth", authLimiter);
 app.use(helmet());
 

@@ -591,3 +591,24 @@ model Site {
   @@index([createdByPublicId])
   @@index([name])
 }
+
+//////////////////////////////////////////////////
+// CONTACTS / LEADS
+//////////////////////////////////////////////////
+
+model Contact {
+  id        BigInt   @id @default(autoincrement())
+  publicId  String   @unique @default(uuid())
+  name      String
+  email     String
+  phone     String?
+  website   String?
+  message   String   @db.Text
+  consent   Boolean  @default(false)
+  source    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([email])
+  @@index([createdAt])
+}
