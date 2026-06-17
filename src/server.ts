@@ -1,6 +1,6 @@
 import app from "./app";
 import rateLimit from "express-rate-limit";
-const PORT = 4000;
+const PORT = process.env.PORT || 4000;
 
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
