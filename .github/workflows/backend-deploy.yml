@@ -32,6 +32,28 @@ jobs:
       - name: Build backend
         run: npm run build
 
+      # 5.5. Get GitHub Runner IP
+      - name: Get GitHub Runner IP
+        id: ip
+        run: echo "ipv4=$(curl -s https://api.ipify.org)" >> $GITHUB_OUTPUT
+
+      # 5.6. Configure AWS credentials
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION || 'ap-south-1' }}
+
+      # 5.7. Add Runner IP to EC2 Security Group
+      - name: Add Runner IP to Security Group
+        run: |
+          aws ec2 authorize-security-group-ingress \
+            --group-id ${{ secrets.AWS_SG_ID }} \
+            --protocol tcp \
+            --port 22 \
+            --cidr ${{ steps.ip.outputs.ipv4 }}/32
+
       # 6. Copy files to EC2
       - name: Copy files to EC2
         uses: appleboy/scp-action@v0.1.7
@@ -68,3 +90,13 @@ jobs:
             pm2 save
 
             echo "✅ Deployment successful!"
+
+      # 8. Remove Runner IP from Security Group
+      - name: Remove Runner IP from Security Group
+        if: always()
+        run: |
+          aws ec2 revoke-security-group-ingress \
+            --group-id ${{ secrets.AWS_SG_ID }} \
+            --protocol tcp \
+            --port 22 \
+            --cidr ${{ steps.ip.outputs.ipv4 }}/32
