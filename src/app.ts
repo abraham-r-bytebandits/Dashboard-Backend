@@ -14,6 +14,8 @@ import dashboardRoutes from "./routes/dashboard.routes";
 import imageRoutes from "./routes/image.routes";
 import siteRoutes from "./routes/site.routes";
 import contactRoutes from "./routes/contact.routes";
+import workItemRoutes from "./routes/workItem.routes";
+import path from "path";
 import { rateLimit } from "express-rate-limit";
 import helmet from "helmet";
 dotenv.config();
@@ -28,6 +30,7 @@ const authLimiter = rateLimit({
 
 const allowedOrigins = [
   "http://localhost:5173",
+  "http://localhost:5174",
   "http://localhost:3000",
 ];
 
@@ -67,6 +70,8 @@ app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/image", imageRoutes);
 app.use("/api/sites", siteRoutes);
 app.use("/api/contacts", contactRoutes);
+app.use("/api/work-items", workItemRoutes);
+app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 app.use("/api/auth", authLimiter);
 app.use(helmet());
 

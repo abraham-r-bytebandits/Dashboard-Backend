@@ -4,6 +4,8 @@ import prisma from "../prisma/client";
 
 export interface AuthRequest extends Request {
   publicId?: string;
+  email?: string;
+  affiliation?: string;
   role?: string;
   roles?: string[];
   permissions?: string[];
@@ -35,6 +37,7 @@ export const authMiddleware = async (
     const account = await prisma.account.findUnique({
       where: { publicId: decoded.publicId },
       include: {
+        profile: true,
         roles: {
           include: {
             role: {
@@ -56,6 +59,8 @@ export const authMiddleware = async (
     }
 
     req.publicId = account.publicId;
+    req.email = account.email;
+    req.affiliation = account.profile?.affiliation || "internal";
     req.roles = account.roles.map((r) => r.role.name);
     req.role = req.roles[0]; // Primary role (backward compat)
     req.permissions = Array.from(
@@ -96,4 +101,68 @@ export const authorize = (allowedRoles: string[]) => {
 
     next();
   };
+};
+
+/**
+ * Optional authentication middleware:
+ * Populates req.publicId, roles, permissions if token exists and valid,
+ * but allows request to proceed if no token is present.
+ */
+export const optionalAuth = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  const header = req.headers.authorization;
+  if (!header || !header.startsWith("Bearer ")) {
+    return next();
+  }
+
+  const token = header.split(" ")[1];
+  try {
+    const decoded = jwt.verify(
+      token,
+      process.env.JWT_SECRET as string
+    ) as any;
+
+    if (decoded && decoded.publicId) {
+      const account = await prisma.account.findUnique({
+        where: { publicId: decoded.publicId },
+        include: {
+          profile: true,
+          roles: {
+            include: {
+              role: {
+                include: {
+                  permissions: {
+                    include: {
+                      permission: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+
+      if (account && account.status === "ACTIVE") {
+        req.publicId = account.publicId;
+        req.email = account.email;
+        req.affiliation = account.profile?.affiliation || "internal";
+        req.roles = account.roles.map((r) => r.role.name);
+        req.role = req.roles[0];
+        req.permissions = Array.from(
+          new Set(
+            account.roles.flatMap((r) =>
+              r.role.permissions.map((p) => p.permission.code)
+            )
+          )
+        );
+      }
+    }
+    next();
+  } catch (err) {
+    next();
+  }
 };

@@ -13,7 +13,7 @@ import { parsePagination } from "../utils/pagination";
  */
 export const createUser = async (req: AuthRequest, res: Response) => {
   try {
-    const { firstName, lastName, email, phone, username, role, password } = req.body;
+    const { firstName, lastName, email, phone, username, role, password, functionalRole, affiliation } = req.body;
 
     // Check for existing account by email or username
     if (email) {
@@ -59,6 +59,8 @@ export const createUser = async (req: AuthRequest, res: Response) => {
               firstName,
               lastName,
               phone: phone || null,
+              functionalRole: functionalRole || null,
+              affiliation: affiliation || "internal",
             },
           },
         },
@@ -108,6 +110,8 @@ export const createUser = async (req: AuthRequest, res: Response) => {
       role,
       firstName,
       lastName,
+      functionalRole: account.profile?.functionalRole || null,
+      affiliation: account.profile?.affiliation || "internal",
       ...(email ? {} : { temporaryPassword: rawPassword }),
     }, "User created successfully");
   } catch (error) {
@@ -154,8 +158,12 @@ export const listUsers = async (req: AuthRequest, res: Response) => {
             lastName: u.profile.lastName,
             phone: u.profile.phone,
             profileImage: u.profile.profileImage,
+            functionalRole: u.profile.functionalRole || null,
+            affiliation: u.profile.affiliation || "internal",
           }
         : null,
+      functionalRole: u.profile?.functionalRole || null,
+      affiliation: u.profile?.affiliation || "internal",
       roles: u.roles.map((r) => r.role.name),
     }));
 
@@ -356,5 +364,90 @@ export const deleteUser = async (req: AuthRequest, res: Response) => {
   } catch (error) {
     console.error("DELETE USER ERROR:", error);
     return sendError(res, "Failed to delete user");
+  }
+};
+
+/**
+ * Update user details (functionalRole, affiliation, profile fields) (SUPER_ADMIN only)
+ */
+export const updateUserDetails = async (req: AuthRequest, res: Response) => {
+  try {
+    const { publicId } = req.params;
+    const { firstName, lastName, phone, functionalRole, affiliation, status } = req.body;
+
+    const existing = await prisma.account.findUnique({
+      where: { publicId },
+      include: { profile: true },
+    });
+
+    if (!existing || existing.status === "DELETED") {
+      return sendError(res, "User not found", 404);
+    }
+
+    await prisma.$transaction(async (tx) => {
+      if (status) {
+        await tx.account.update({
+          where: { publicId },
+          data: { status },
+        });
+      }
+
+      if (existing.profile) {
+        const updateData: any = {};
+        if (firstName !== undefined) updateData.firstName = firstName;
+        if (lastName !== undefined) updateData.lastName = lastName;
+        if (phone !== undefined) updateData.phone = phone;
+        if (functionalRole !== undefined) updateData.functionalRole = functionalRole;
+        if (affiliation !== undefined) updateData.affiliation = affiliation;
+
+        await tx.userProfile.update({
+          where: { accountPublicId: publicId },
+          data: updateData,
+        });
+      } else if (firstName || lastName || functionalRole || affiliation) {
+        await tx.userProfile.create({
+          data: {
+            accountPublicId: publicId,
+            firstName: firstName || "",
+            lastName: lastName || "",
+            phone: phone || null,
+            functionalRole: functionalRole || null,
+            affiliation: affiliation || "internal",
+          },
+        });
+      }
+
+      await tx.activityAuditLog.create({
+        data: {
+          accountPublicId: req.publicId,
+          action: "UPDATE",
+          entityType: "USER",
+          entityId: publicId,
+          newData: { firstName, lastName, functionalRole, affiliation, status },
+        },
+      });
+    });
+
+    const updated = await prisma.account.findUnique({
+      where: { publicId },
+      include: {
+        profile: true,
+        roles: { include: { role: true } },
+      },
+    });
+
+    return sendSuccess(res, {
+      publicId: updated!.publicId,
+      email: updated!.email,
+      username: updated!.username,
+      status: updated!.status,
+      functionalRole: updated!.profile?.functionalRole || null,
+      affiliation: updated!.profile?.affiliation || "internal",
+      profile: updated!.profile,
+      roles: updated!.roles.map((r) => r.role.name),
+    }, "User updated successfully");
+  } catch (error) {
+    console.error("UPDATE USER DETAILS ERROR:", error);
+    return sendError(res, "Failed to update user details");
   }
 };

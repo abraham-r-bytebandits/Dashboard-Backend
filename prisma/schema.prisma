@@ -48,6 +48,8 @@ enum EntityType {
   TRANSACTION
   REPORT
   SITE
+  WORK_ITEM
+  FUNCTIONAL_ROLE
 }
 
 enum InvoiceStatus {
@@ -146,6 +148,7 @@ model Account {
   createdTransactions  Transaction[]  @relation("CreatedTransactions")
   generatedReports     Report[]       @relation("GeneratedReports")
   createdSites         Site[]         @relation("CreatedSites")
+  createdWorkItems     WorkItem[]     @relation("CreatedWorkItems")
 
   @@index([email])
   @@index([username])
@@ -256,12 +259,14 @@ model UserProfile {
   id              BigInt @id @default(autoincrement())
   accountPublicId String @unique
 
-  firstName    String
-  lastName     String
-  phone        String?
-  profileImage String?   @db.Text
-  dateOfBirth  DateTime?
-  gender       String?
+  firstName      String
+  lastName       String
+  phone          String?
+  profileImage   String?   @db.Text
+  dateOfBirth    DateTime?
+  gender         String?
+  functionalRole String?
+  affiliation    String?   @default("internal")
 
   account Account @relation(fields: [accountPublicId], references: [publicId], onDelete: Cascade)
 }
@@ -610,5 +615,53 @@ model Contact {
   updatedAt DateTime @updatedAt
 
   @@index([email])
+  @@index([createdAt])
+}
+
+//////////////////////////////////////////////////
+// FUNCTIONAL ROLES
+//////////////////////////////////////////////////
+
+model FunctionalRole {
+  id          BigInt   @id @default(autoincrement())
+  publicId    String   @unique @default(uuid())
+  name        String   @unique
+  description String?
+  color       String?  @default("indigo")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([name])
+}
+
+//////////////////////////////////////////////////
+// WORK ITEMS (ASSESSMENTS & TASKS)
+//////////////////////////////////////////////////
+
+model WorkItem {
+  id                 BigInt    @id @default(autoincrement())
+  publicId           String    @unique @default(uuid())
+  customId           String?   @unique
+  title              String
+  description        String?   @db.LongText
+  priority           String    @default("medium")
+  status             String    @default("new")
+  dueDate            DateTime?
+  milestoneCompleted Int       @default(0)
+  milestoneTotal     Int       @default(1)
+  attachmentsCount   Int       @default(0)
+  attachments        Json?
+  assignees          Json?
+  commentsCount      Int       @default(0)
+
+  createdByPublicId String?
+  createdBy         Account? @relation("CreatedWorkItems", fields: [createdByPublicId], references: [publicId], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([priority])
+  @@index([createdByPublicId])
   @@index([createdAt])
 }

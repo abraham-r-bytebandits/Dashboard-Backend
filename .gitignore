@@ -41,3 +41,6 @@ ehthumbs.db
 *.njsproj
 *.sln
 *.sw?
+
+# User Uploads
+uploads/
