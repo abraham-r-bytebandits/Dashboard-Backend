@@ -1,3 +1,4 @@
+import { sendAssignmentNotificationEmail } from "../utils/mailer";
 import { Request, Response } from "express";
 import prisma from "../prisma/client";
 import { AuthRequest } from "../middlewares/auth.middleware";
@@ -203,6 +204,90 @@ export const createWorkItem = async (req: AuthRequest, res: Response) => {
       } catch {
         // Non-blocking audit log
       }
+    }
+
+    
+    // Asynchronously dispatch email notifications to all assigned team members
+    if (Array.isArray(assignees) && assignees.length > 0) {
+      (async () => {
+        try {
+          const recipients = [];
+          const missingEmailIds = [];
+
+          for (const a of assignees) {
+            if (a && a.email && typeof a.email === "string" && a.email.includes("@")) {
+              recipients.push({ email: a.email.trim(), name: a.name });
+            } else if (a && (a.id || a.publicId)) {
+              missingEmailIds.push(a.id || a.publicId);
+            }
+          }
+
+          if (missingEmailIds.length > 0) {
+            const accounts = await prisma.account.findMany({
+              where: {
+                publicId: { in: missingEmailIds },
+              },
+              select: {
+                email: true,
+                username: true,
+                profile: {
+                  select: { firstName: true, lastName: true },
+                },
+              },
+            });
+
+            for (const acc of accounts) {
+              if (acc.email && !recipients.some((r) => r.email.toLowerCase() === acc.email.toLowerCase())) {
+                const name =
+                  acc.profile?.firstName && acc.profile?.lastName
+                    ? `${acc.profile.firstName} ${acc.profile.lastName}`
+                    : acc.username || acc.email;
+                recipients.push({ email: acc.email, name });
+              }
+            }
+          }
+
+          let createdByName = "A Team Administrator";
+          if (req.publicId) {
+            const creatorAcc = await prisma.account.findUnique({
+              where: { publicId: req.publicId },
+              select: {
+                username: true,
+                email: true,
+                profile: { select: { firstName: true, lastName: true } },
+              },
+            });
+            if (creatorAcc) {
+              createdByName =
+                creatorAcc.profile?.firstName && creatorAcc.profile?.lastName
+                  ? `${creatorAcc.profile.firstName} ${creatorAcc.profile.lastName}`
+                  : creatorAcc.username || creatorAcc.email;
+            }
+          }
+
+          const emailPromises = recipients.map((r) =>
+            sendAssignmentNotificationEmail({
+              to: r.email,
+              assigneeName: r.name,
+              title: item.title,
+              description: item.description,
+              priority: item.priority,
+              status: item.status,
+              dueDate: item.dueDate ? item.dueDate.toISOString().split("T")[0] : null,
+              milestone: {
+                completed: item.milestoneCompleted,
+                total: item.milestoneTotal,
+              },
+              createdByName,
+              assignmentId: item.customId || item.publicId,
+            })
+          );
+
+          await Promise.allSettled(emailPromises);
+        } catch (err) {
+          console.error("Failed to send assignment notification emails:", err);
+        }
+      })();
     }
 
     return sendCreated(res, formatWorkItem(item, req.affiliation), "Work item created successfully");
