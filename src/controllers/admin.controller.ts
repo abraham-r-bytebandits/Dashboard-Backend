@@ -21,7 +21,19 @@ export const createUser = async (req: AuthRequest, res: Response) => {
         where: { email },
       });
       if (existingEmail) {
-        return sendError(res, "Email already exists", 400);
+        if (existingEmail.status === "DELETED" || existingEmail.deletedAt !== null) {
+          // Free up the email and username on the soft-deleted account
+          const deletedSuffix = `_deleted_${Date.now()}`;
+          await prisma.account.update({
+            where: { id: existingEmail.id },
+            data: {
+              email: `${existingEmail.email}${deletedSuffix}`,
+              username: `${existingEmail.username}${deletedSuffix}`,
+            },
+          });
+        } else {
+          return sendError(res, "Email already exists", 400);
+        }
       }
     }
 
@@ -34,7 +46,18 @@ export const createUser = async (req: AuthRequest, res: Response) => {
       where: { username: accountUsername },
     });
     if (existingUsername) {
-      return sendError(res, "Username already exists", 400);
+      if (existingUsername.status === "DELETED" || existingUsername.deletedAt !== null) {
+        // Free up the username on the soft-deleted account
+        const deletedSuffix = `_deleted_${Date.now()}`;
+        await prisma.account.update({
+          where: { id: existingUsername.id },
+          data: {
+            username: `${existingUsername.username}${deletedSuffix}`,
+          },
+        });
+      } else {
+        return sendError(res, "Username already exists", 400);
+      }
     }
 
     // Use provided password or generate random password
@@ -343,9 +366,12 @@ export const deleteUser = async (req: AuthRequest, res: Response) => {
       return sendError(res, "Cannot delete your own account", 400);
     }
 
+    const deletedSuffix = `_deleted_${Date.now()}`;
     await prisma.account.update({
       where: { publicId },
       data: {
+        email: `${user.email}${deletedSuffix}`,
+        username: `${user.username}${deletedSuffix}`,
         deletedAt: new Date(),
         status: "DELETED",
       },

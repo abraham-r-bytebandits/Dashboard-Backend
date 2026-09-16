@@ -113,9 +113,16 @@ export const deleteAccount = async (req: AuthRequest, res: Response) => {
       return sendError(res, "Unauthorized", 401);
     }
 
+    const account = await prisma.account.findUnique({
+      where: { publicId: req.publicId },
+    });
+
+    const deletedSuffix = `_deleted_${Date.now()}`;
     await prisma.account.update({
       where: { publicId: req.publicId },
       data: {
+        email: account ? `${account.email}${deletedSuffix}` : undefined,
+        username: account ? `${account.username}${deletedSuffix}` : undefined,
         deletedAt: new Date(),
         status: "DELETED",
       },
