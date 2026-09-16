@@ -36,8 +36,12 @@ export const login = async (req: Request, res: Response) => {
     include: { credential: true },
   });
 
-  if (!account || !account.credential) {
+  if (!account) {
     return res.status(400).json({ message: "Invalid credentials" });
+  }
+
+  if (!account.credential) {
+    return res.status(400).json({ message: "This account uses Google Sign-In or does not have a password set." });
   }
 
   if (account.status !== "ACTIVE") {
@@ -240,33 +244,38 @@ export const refresh = async (req: Request, res: Response) => {
 
 // ─── LOGOUT ────────────────────────────────────────────────────────────
 export const logout = async (req: Request, res: Response) => {
-  const { refreshToken } = req.body;
+  try {
+    const { refreshToken } = req.body;
 
-  const hashed = crypto.createHash("sha256").update(refreshToken).digest("hex");
+    if (refreshToken) {
+      const hashed = crypto.createHash("sha256").update(refreshToken).digest("hex");
 
-  const session = await prisma.session.findFirst({
-    where: { refreshTokenHash: hashed },
-  });
+      const session = await prisma.session.findFirst({
+        where: { refreshTokenHash: hashed },
+      });
 
-  if (!session) {
-    return res.status(400).json({ message: "Session not found" });
+      if (session) {
+        await prisma.session.updateMany({
+          where: { refreshTokenHash: hashed },
+          data: { revokedAt: new Date() },
+        });
+
+        await prisma.authAuditLog.create({
+          data: {
+            accountPublicId: session.accountPublicId,
+            action: "LOGOUT",
+            ipAddress: req.ip,
+            userAgent: req.headers["user-agent"] as string,
+          },
+        });
+      }
+    }
+
+    res.json({ message: "Logged out successfully" });
+  } catch (err) {
+    console.error("LOGOUT ERROR:", err);
+    res.json({ message: "Logged out successfully" });
   }
-
-  await prisma.session.updateMany({
-    where: { refreshTokenHash: hashed },
-    data: { revokedAt: new Date() },
-  });
-
-  await prisma.authAuditLog.create({
-    data: {
-      accountPublicId: session.accountPublicId,
-      action: "LOGOUT",
-      ipAddress: req.ip,
-      userAgent: req.headers["user-agent"] as string,
-    },
-  });
-
-  res.json({ message: "Logged out" });
 };
 
 // ─── GOOGLE AUTH (LOGIN ONLY — NO SIGNUP) ──────────────────────────────
@@ -315,6 +324,25 @@ export const googleAuth = async (req: Request, res: Response) => {
 
     const accessToken = generateAccessToken(account.publicId);
     const refreshToken = generateRefreshToken(account.publicId);
+
+    const refreshHash = crypto
+      .createHash("sha256")
+      .update(refreshToken)
+      .digest("hex");
+
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7);
+
+    await prisma.session.create({
+      data: {
+        accountPublicId: account.publicId,
+        refreshTokenHash: refreshHash,
+        ipAddress: req.ip,
+        userAgent: req.headers["user-agent"] as string,
+        deviceName: req.headers["sec-ch-ua"]?.toString() || "Unknown Device",
+        expiresAt,
+      },
+    });
 
     const role = await getUserRole(account.publicId);
 
