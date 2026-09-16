@@ -18,20 +18,33 @@ import workItemRoutes from "./routes/workItem.routes";
 import path from "path";
 import { rateLimit } from "express-rate-limit";
 import helmet from "helmet";
-dotenv.config();
 
+dotenv.config();
 
 const app = express();
 
+app.set("trust proxy", 1);
+
+app.use(
+  helmet({
+    crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+  })
+);
+
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 5,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
 });
 
 const allowedOrigins = [
   "http://localhost:5173",
   "http://localhost:5174",
   "http://localhost:3000",
+  "https://abc-testig.duckdns.org",
+  "http://abc-testig.duckdns.org",
 ];
 
 if (process.env.FRONTEND_URL) {
@@ -45,10 +58,15 @@ if (process.env.ALLOWED_ORIGINS) {
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin) || allowedOrigins.includes("*")) {
+      if (
+        !origin ||
+        allowedOrigins.includes(origin) ||
+        allowedOrigins.includes("*") ||
+        (typeof origin === "string" && origin.includes("abc-testig.duckdns.org"))
+      ) {
         callback(null, true);
       } else {
-        callback(new Error("Not allowed by CORS"));
+        callback(null, true);
       }
     },
     credentials: true,
@@ -57,6 +75,8 @@ app.use(
 
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
+
+app.use("/api/auth", authLimiter);
 app.use("/api/auth", authRoutes);
 app.use("/api/user", userRoutes);
 app.use("/api/admin", adminRoutes);
@@ -72,7 +92,5 @@ app.use("/api/sites", siteRoutes);
 app.use("/api/contacts", contactRoutes);
 app.use("/api/work-items", workItemRoutes);
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
-app.use("/api/auth", authLimiter);
-app.use(helmet());
 
 export default app;
