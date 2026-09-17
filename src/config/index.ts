@@ -18,5 +18,5 @@ export default {
     pass: process.env.SMTP_PASS || process.env.EMAIL_PASS || "ByteBandits@123",
     from: process.env.SMTP_FROM || "support@thebytebandits.com",
   },
-  appUrl: process.env.APP_URL || process.env.FRONTEND_URL || "https://abc-testig.duckdns.org",
+  appUrl: process.env.APP_URL || process.env.FRONTEND_URL || "https://crm.thebytebandits.com",
 };

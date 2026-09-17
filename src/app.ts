@@ -43,6 +43,9 @@ const allowedOrigins = [
   "http://localhost:5173",
   "http://localhost:5174",
   "http://localhost:3000",
+  "https://crm.thebytebandits.com",
+  "http://crm.thebytebandits.com",
+  "https://thebytebandits.com",
   "https://abc-testig.duckdns.org",
   "http://abc-testig.duckdns.org",
 ];
@@ -62,7 +65,7 @@ app.use(
         !origin ||
         allowedOrigins.includes(origin) ||
         allowedOrigins.includes("*") ||
-        (typeof origin === "string" && origin.includes("abc-testig.duckdns.org"))
+        (typeof origin === "string" && (origin.includes("thebytebandits.com") || origin.includes("abc-testig.duckdns.org")))
       ) {
         callback(null, true);
       } else {

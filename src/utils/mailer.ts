@@ -136,7 +136,7 @@ export const sendAssignmentNotificationEmail = async (
     milestone,
     createdByName,
     assignmentId,
-    appUrl = config.appUrl || "https://abc-testig.duckdns.org",
+    appUrl = config.appUrl || "https://crm.thebytebandits.com",
   } = payload;
 
   if (!to || !to.includes("@")) {
