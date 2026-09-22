@@ -37,9 +37,10 @@ services:
       - "80:80"
       - "443:443"
     environment:
-      # Space-separated list of domains Caddy should serve/get certs for.
-      SITE_ADDRESS: "crm.thebytebandits.com abc-testig.duckdns.org"
+      # Domain Caddy should serve/get certs for.
+      SITE_ADDRESS: "crm.thebytebandits.com"
     volumes:
+
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
