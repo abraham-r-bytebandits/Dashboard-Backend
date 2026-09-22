@@ -9,6 +9,9 @@ export const getProfile = async (req: AuthRequest, res: Response) => {
       where: { publicId: req.publicId },
       include: {
         profile: true,
+        manager: {
+          include: { profile: true },
+        },
         roles: {
           include: {
             role: {
@@ -32,7 +35,13 @@ export const getProfile = async (req: AuthRequest, res: Response) => {
       return sendError(res, "User not found", 404);
     }
 
-    // Format the response to extract just the role names and permissions for easier frontend consumption
+    const managerName = user.manager
+      ? (user.manager.profile
+          ? `${user.manager.profile.firstName} ${user.manager.profile.lastName}`.trim()
+          : user.manager.username)
+      : null;
+
+    // Format the response to extract role names, accessible pages, and manager info
     const formattedUser = {
       id: user.id.toString(),
       publicId: user.publicId,
@@ -42,6 +51,9 @@ export const getProfile = async (req: AuthRequest, res: Response) => {
       isEmailVerified: user.isEmailVerified,
       lastLoginAt: user.lastLoginAt,
       createdAt: user.createdAt,
+      managerPublicId: user.managerPublicId,
+      managerName,
+      accessiblePages: user.accessiblePages,
       profile: user.profile ? {
         ...user.profile,
         id: user.profile.id.toString(),

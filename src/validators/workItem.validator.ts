@@ -14,8 +14,19 @@ export const assigneeSchema = z.object({
   name: z.string(),
   avatar: z.string().optional().nullable(),
   role: z.string().optional().default("Member"),
+  systemRole: z.string().optional().nullable(),
   affiliation: z.enum(["internal", "external"]).optional().default("internal"),
   email: z.string().optional().nullable(),
+  managerPublicId: z.string().optional().nullable(),
+  managerName: z.string().optional().nullable(),
+}).passthrough();
+
+export const subtaskSchema = z.object({
+  id: z.string(),
+  title: z.string().min(1, "Subtask title is required"),
+  description: z.string().optional().nullable(),
+  isCompleted: z.boolean().optional().default(false),
+  createdAt: z.string().optional(),
 });
 
 export const createWorkItemSchema = z.object({
@@ -33,6 +44,9 @@ export const createWorkItemSchema = z.object({
   attachments: z.array(attachmentSchema).optional(),
   assignees: z.array(assigneeSchema).optional(),
   commentsCount: z.number().optional(),
+  managerPublicId: z.string().optional().nullable(),
+  subtasks: z.array(subtaskSchema).optional(),
+  isMainCompleted: z.boolean().optional(),
 });
 
 export const updateWorkItemStatusSchema = z.object({
@@ -57,9 +71,15 @@ export const updateWorkItemSchema = z.object({
   attachments: z.array(attachmentSchema).optional(),
   assignees: z.array(assigneeSchema).optional(),
   commentsCount: z.number().optional(),
+  subtasks: z.array(subtaskSchema).optional(),
+  isMainCompleted: z.boolean().optional(),
 });
 
 export const updateWorkItemMilestoneSchema = z.object({
-  completed: z.number().min(0, "Completed must be 0 or greater"),
+  completed: z.number().min(0, "Completed must be 0 or greater").optional(),
   total: z.number().min(1, "Total must be at least 1").optional(),
+  milestone: z.object({
+    completed: z.number().min(0, "Completed must be 0 or greater").optional(),
+    total: z.number().min(1, "Total must be at least 1").optional(),
+  }).optional(),
 });

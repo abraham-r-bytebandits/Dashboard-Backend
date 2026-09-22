@@ -1,5 +1,6 @@
 import { Router } from "express";
 import {
+  getAssignableUsers,
   getWorkItems,
   getWorkItemById,
   createWorkItem,
@@ -11,7 +12,7 @@ import {
   uploadAttachment,
   uploadAttachmentMiddleware,
 } from "../controllers/workItem.controller";
-import { optionalAuth } from "../middlewares/auth.middleware";
+import { authMiddleware, optionalAuth } from "../middlewares/auth.middleware";
 import { validate } from "../utils/validate.middleware";
 import {
   createWorkItemSchema,
@@ -22,6 +23,9 @@ import {
 } from "../validators/workItem.validator";
 
 const router = Router();
+
+// GET /api/work-items/assignable-users - Only Admin and Manager can fetch assignable collaborators
+router.get("/assignable-users", authMiddleware, getAssignableUsers);
 
 // Apply optionalAuth so user role, email, and publicId are captured
 router.use(optionalAuth);

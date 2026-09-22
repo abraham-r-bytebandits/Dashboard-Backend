@@ -149,9 +149,14 @@ model Account {
   generatedReports     Report[]       @relation("GeneratedReports")
   createdSites         Site[]         @relation("CreatedSites")
   createdWorkItems     WorkItem[]     @relation("CreatedWorkItems")
+  managerPublicId      String?
+  manager              Account?       @relation("ManagerSubordinates", fields: [managerPublicId], references: [publicId], onDelete: SetNull)
+  subordinates         Account[]      @relation("ManagerSubordinates")
+  accessiblePages      Json?
 
   @@index([email])
   @@index([username])
+  @@index([managerPublicId])
 }
 
 model Credential {
@@ -653,7 +658,10 @@ model WorkItem {
   attachments        Json?
   assignees          Json?
   commentsCount      Int       @default(0)
+  subtasks           Json?
+  isMainCompleted    Boolean   @default(false)
 
+  managerPublicId   String?
   createdByPublicId String?
   createdBy         Account? @relation("CreatedWorkItems", fields: [createdByPublicId], references: [publicId], onDelete: SetNull)
 
@@ -662,6 +670,7 @@ model WorkItem {
 
   @@index([status])
   @@index([priority])
+  @@index([managerPublicId])
   @@index([createdByPublicId])
   @@index([createdAt])
 }

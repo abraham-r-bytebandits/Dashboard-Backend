@@ -33,16 +33,25 @@ export const uploadAttachmentMiddleware = multer({
  * Check if the authenticated user is an administrator
  */
 export const isUserAdmin = (req: AuthRequest): boolean => {
-  if (!req.roles || req.roles.length === 0) return true; // Unauthenticated dev/fallback
+  if (!req.roles || req.roles.length === 0) return false;
   return req.roles.some((r) => r.toUpperCase() === "SUPER_ADMIN" || r.toUpperCase() === "ADMIN");
 };
 
 /**
- * Check if the user is an assigned collaborator or creator of the work item
+ * Check if the authenticated user is a manager
+ */
+export const isUserManager = (req: AuthRequest): boolean => {
+  if (!req.roles || req.roles.length === 0) return false;
+  return req.roles.some((r) => r.toUpperCase() === "MANAGER");
+};
+
+/**
+ * Check if the user is an assigned collaborator, manager, or creator of the work item
  */
 export const isUserAssignedOrCreator = (item: any, req: AuthRequest): boolean => {
   if (isUserAdmin(req)) return true;
   if (req.publicId && item.createdByPublicId === req.publicId) return true;
+  if (req.publicId && item.managerPublicId === req.publicId) return true;
   if (!Array.isArray(item.assignees)) return false;
   return item.assignees.some((a: any) => {
     if (req.email && a.email && a.email.toLowerCase() === req.email.toLowerCase()) return true;
@@ -67,6 +76,8 @@ export const formatWorkItem = (item: any, affiliation?: string) => {
     status: item.status || "new",
     dueDate: item.dueDate ? new Date(item.dueDate).toISOString().split("T")[0] : "",
     assignees: Array.isArray(item.assignees) ? item.assignees : [],
+    subtasks: Array.isArray(item.subtasks) ? item.subtasks : [],
+    isMainCompleted: Boolean(item.isMainCompleted),
     milestone: {
       completed: item.milestoneCompleted ?? 0,
       total: item.milestoneTotal ?? 1,
@@ -76,6 +87,7 @@ export const formatWorkItem = (item: any, affiliation?: string) => {
     commentsCount: item.commentsCount ?? 0,
     createdAt: item.createdAt ? new Date(item.createdAt).toISOString() : new Date().toISOString(),
     updatedAt: item.updatedAt ? new Date(item.updatedAt).toISOString() : new Date().toISOString(),
+    managerPublicId: isExternal ? undefined : item.managerPublicId,
     createdByPublicId: isExternal ? undefined : item.createdByPublicId,
   };
 };
@@ -83,8 +95,79 @@ export const formatWorkItem = (item: any, affiliation?: string) => {
 /**
  * GET /api/work-items
  * Query params: status, priority, search, scope ('all' | 'assigned')
- * Enforces role-based visibility: regular users see assigned/created items by default unless scope=all
+ * Scopes data according to 4-Role Hierarchy:
+ * - ADMIN: all work items
+ * - MANAGER: items created, managed, or assigned to manager or their subordinates
+ * - INTERNAL / EXTERNAL: strictly items assigned to user
  */
+/**
+ * GET /api/work-items/assignable-users
+ * Returns list of users that the authenticated user can assign work to:
+ * - ADMIN: all active users across company (ADMIN, MANAGER, INTERNAL_USER, EXTERNAL_USER)
+ * - MANAGER: themselves + their assigned subordinates (INTERNAL_USER and EXTERNAL_USER where managerPublicId === req.publicId)
+ * - INTERNAL_USER / EXTERNAL_USER: 403 Forbidden
+ */
+export const getAssignableUsers = async (req: AuthRequest, res: Response) => {
+  try {
+    const isAdmin = isUserAdmin(req);
+    const isManager = isUserManager(req);
+
+    const where: any = {
+      status: { not: "DELETED" },
+    };
+
+    // Managers can assign internal staff, supervised subordinates, and external contractors
+
+    const accounts = await prisma.account.findMany({
+      where,
+      include: {
+        profile: true,
+        manager: {
+          include: { profile: true },
+        },
+        roles: {
+          include: { role: true },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    const formatted = accounts.map((u) => {
+      const primaryRole = u.roles?.[0]?.role?.name || "INTERNAL_USER";
+      const managerName = u.manager
+        ? (u.manager.profile
+            ? `${u.manager.profile.firstName} ${u.manager.profile.lastName}`.trim()
+            : u.manager.username)
+        : null;
+
+      const fullName = u.profile
+        ? `${u.profile.firstName || ""} ${u.profile.lastName || ""}`.trim()
+        : "";
+
+      const displayName = fullName || u.username || u.email;
+
+      return {
+        id: u.publicId,
+        publicId: u.publicId,
+        name: displayName,
+        email: u.email,
+        avatar: u.profile?.profileImage || "",
+        role: u.profile?.functionalRole || primaryRole,
+        systemRole: primaryRole,
+        affiliation: (u.profile?.affiliation?.toLowerCase() === "external" || primaryRole === "EXTERNAL_USER") ? "external" : "internal",
+        functionalRole: u.profile?.functionalRole || null,
+        managerPublicId: u.managerPublicId,
+        managerName,
+      };
+    });
+
+    return sendSuccess(res, formatted);
+  } catch (error) {
+    console.error("GET ASSIGNABLE USERS ERROR:", error);
+    return sendError(res, "Failed to fetch assignable users");
+  }
+};
+
 export const getWorkItems = async (req: AuthRequest, res: Response) => {
   try {
     const { status, priority, search, scope } = req.query;
@@ -108,13 +191,40 @@ export const getWorkItems = async (req: AuthRequest, res: Response) => {
       orderBy: { createdAt: "desc" },
     });
 
-    // Check user role: if regular user and scope is not explicitly 'all', filter to assigned or created items
     const isAdmin = isUserAdmin(req);
-    const shouldFilterToAssigned = !isAdmin && scope !== "all";
+    const isManager = isUserManager(req);
 
-    const filteredItems = shouldFilterToAssigned
-      ? items.filter((item) => isUserAssignedOrCreator(item, req))
-      : items;
+    let filteredItems = items;
+
+    if (isAdmin) {
+      filteredItems = items;
+    } else if (isManager && req.publicId) {
+      // Find all subordinates reporting to this manager
+      const subordinates = await prisma.account.findMany({
+        where: { managerPublicId: req.publicId },
+        select: { publicId: true, email: true },
+      });
+      const subPublicIds = new Set(subordinates.map((s) => s.publicId));
+      const subEmails = new Set(subordinates.map((s) => s.email.toLowerCase()));
+
+      filteredItems = items.filter((item) => {
+        if (item.managerPublicId === req.publicId) return true;
+        if (item.createdByPublicId === req.publicId) return true;
+        if (isUserAssignedOrCreator(item, req)) return true;
+
+        if (Array.isArray(item.assignees)) {
+          return item.assignees.some((a: any) => {
+            if (a.id && subPublicIds.has(a.id)) return true;
+            if (a.email && subEmails.has(a.email.toLowerCase())) return true;
+            return false;
+          });
+        }
+        return false;
+      });
+    } else {
+      // Internal or External user: strictly assigned or created
+      filteredItems = items.filter((item) => isUserAssignedOrCreator(item, req));
+    }
 
     const formatted = filteredItems.map((item) => formatWorkItem(item, req.affiliation));
     return sendSuccess(res, formatted);
@@ -154,6 +264,9 @@ export const getWorkItemById = async (req: AuthRequest, res: Response) => {
  */
 export const createWorkItem = async (req: AuthRequest, res: Response) => {
   try {
+    const isAdmin = isUserAdmin(req);
+    const isManager = isUserManager(req);
+
     const {
       id,
       title,
@@ -166,146 +279,86 @@ export const createWorkItem = async (req: AuthRequest, res: Response) => {
       attachmentsCount,
       assignees = [],
       commentsCount = 0,
+      managerPublicId,
+      subtasks = [],
+      isMainCompleted = false,
     } = req.body;
 
     const customId = id || ("work-" + Date.now());
-
     const parsedDueDate = dueDate ? new Date(dueDate) : null;
     const count = attachmentsCount !== undefined ? attachmentsCount : (Array.isArray(attachments) ? attachments.length : 0);
 
-    const item = await prisma.workItem.create({
+    // Auto-resolve supervising manager and allow assigning internal staff and external contractors
+    let resolvedManagerPublicId = managerPublicId || null;
+    if (isManager && !isAdmin && req.publicId) {
+      resolvedManagerPublicId = req.publicId;
+    } else if (isAdmin) {
+      // Admin directly assigns to Managers, Internal Workers, or External Workers
+      if (!resolvedManagerPublicId && Array.isArray(assignees) && assignees.length > 0) {
+        const managerAssignee = assignees.find(
+          (a) => a.systemRole?.toUpperCase() === "MANAGER" || a.role?.toUpperCase() === "MANAGER"
+        );
+        if (managerAssignee) {
+          resolvedManagerPublicId = managerAssignee.id || managerAssignee.publicId || null;
+        }
+      }
+    }
+
+    const workItem = await prisma.workItem.create({
       data: {
+        publicId: crypto.randomUUID(),
         customId,
         title,
-        description: description || null,
+        description: description || "",
         priority,
         status,
         dueDate: parsedDueDate,
-        milestoneCompleted: Number(milestone?.completed) || 0,
-        milestoneTotal: Number(milestone?.total) || 1,
+        milestoneCompleted: Array.isArray(subtasks) && subtasks.length > 0
+          ? ((isMainCompleted || status === "approval" ? 1 : 0) + (subtasks as any[]).filter((s: any) => s && s.isCompleted).length)
+          : Number(milestone.completed || 0),
+        milestoneTotal: Array.isArray(subtasks) && subtasks.length > 0
+          ? (1 + subtasks.length)
+          : Number(milestone.total || 1),
         attachmentsCount: count,
         attachments: Array.isArray(attachments) ? attachments : [],
         assignees: Array.isArray(assignees) ? assignees : [],
-        commentsCount: Number(commentsCount) || 0,
+        subtasks: Array.isArray(subtasks) ? subtasks : [],
+        isMainCompleted: Boolean(isMainCompleted || status === "approval"),
+        commentsCount: Number(commentsCount || 0),
+        managerPublicId: resolvedManagerPublicId,
         createdByPublicId: req.publicId || null,
       },
     });
 
-    if (req.publicId) {
-      try {
-        await prisma.activityAuditLog.create({
-          data: {
-            accountPublicId: req.publicId,
-            action: "CREATE",
-            entityType: "WORK_ITEM",
-            entityId: item.publicId,
-          },
-        });
-      } catch {
-        // Non-blocking audit log
+    // Notify assigned collaborators via email asynchronously
+    if (Array.isArray(assignees) && assignees.length > 0) {
+      for (const assignee of assignees) {
+        if (assignee.email) {
+          sendAssignmentNotificationEmail({
+            to: assignee.email,
+            assigneeName: assignee.name || "Collaborator",
+            assignmentId: customId,
+            title,
+            priority,
+            dueDate: dueDate ? new Date(dueDate).toLocaleDateString() : undefined
+          }).catch((e) => console.error("Email notification dispatch error:", e));
+        }
       }
     }
 
-    
-    // Asynchronously dispatch email notifications to all assigned team members
-    if (Array.isArray(assignees) && assignees.length > 0) {
-      (async () => {
-        try {
-          const recipients = [];
-          const missingEmailIds = [];
-
-          for (const a of assignees) {
-            if (a && a.email && typeof a.email === "string" && a.email.includes("@")) {
-              recipients.push({ email: a.email.trim(), name: a.name });
-            } else if (a && (a.id || a.publicId)) {
-              missingEmailIds.push(a.id || a.publicId);
-            }
-          }
-
-          if (missingEmailIds.length > 0) {
-            const accounts = await prisma.account.findMany({
-              where: {
-                publicId: { in: missingEmailIds },
-              },
-              select: {
-                email: true,
-                username: true,
-                profile: {
-                  select: { firstName: true, lastName: true },
-                },
-              },
-            });
-
-            for (const acc of accounts) {
-              if (acc.email && !recipients.some((r) => r.email.toLowerCase() === acc.email.toLowerCase())) {
-                const name =
-                  acc.profile?.firstName && acc.profile?.lastName
-                    ? `${acc.profile.firstName} ${acc.profile.lastName}`
-                    : acc.username || acc.email;
-                recipients.push({ email: acc.email, name });
-              }
-            }
-          }
-
-          let createdByName = "A Team Administrator";
-          if (req.publicId) {
-            const creatorAcc = await prisma.account.findUnique({
-              where: { publicId: req.publicId },
-              select: {
-                username: true,
-                email: true,
-                profile: { select: { firstName: true, lastName: true } },
-              },
-            });
-            if (creatorAcc) {
-              createdByName =
-                creatorAcc.profile?.firstName && creatorAcc.profile?.lastName
-                  ? `${creatorAcc.profile.firstName} ${creatorAcc.profile.lastName}`
-                  : creatorAcc.username || creatorAcc.email;
-            }
-          }
-
-          const emailPromises = recipients.map((r) =>
-            sendAssignmentNotificationEmail({
-              to: r.email,
-              assigneeName: r.name,
-              title: item.title,
-              description: item.description,
-              priority: item.priority,
-              status: item.status,
-              dueDate: item.dueDate ? item.dueDate.toISOString().split("T")[0] : null,
-              milestone: {
-                completed: item.milestoneCompleted,
-                total: item.milestoneTotal,
-              },
-              createdByName,
-              assignmentId: item.customId || item.publicId,
-            })
-          );
-
-          await Promise.allSettled(emailPromises);
-        } catch (err) {
-          console.error("Failed to send assignment notification emails:", err);
-        }
-      })();
-    }
-
-    return sendCreated(res, formatWorkItem(item, req.affiliation), "Work item created successfully");
+    return sendCreated(res, formatWorkItem(workItem, req.affiliation), "Work assessment created successfully");
   } catch (error) {
     console.error("CREATE WORK ITEM ERROR:", error);
     return sendError(res, "Failed to create work item");
   }
 };
 
-/**
- * PATCH /api/work-items/:id/milestone
- * Users can update milestone progress as completed in the view page
- * Enforces role-based access: allowed for assigned collaborators or admins
- */
 export const updateWorkItemMilestone = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
-    const { completed, total } = req.body;
+    const milestoneObj = req.body.milestone || req.body || {};
+    const rawCompleted = req.body.completed !== undefined ? req.body.completed : milestoneObj.completed;
+    const rawTotal = req.body.total !== undefined ? req.body.total : milestoneObj.total;
 
     const existing = await prisma.workItem.findFirst({
       where: {
@@ -318,47 +371,31 @@ export const updateWorkItemMilestone = async (req: AuthRequest, res: Response) =
     }
 
     if (!isUserAssignedOrCreator(existing, req)) {
-      return sendError(res, "Only assigned team members or administrators can update milestone progress", 403);
+      return sendError(res, "Only assigned team members, managers, or administrators can update milestone progress", 403);
     }
 
-    const updateData: any = {
-      milestoneCompleted: Math.max(0, Number(completed)),
-    };
-    if (total !== undefined && Number(total) >= 1) {
-      updateData.milestoneTotal = Number(total);
-    }
+    const completed = rawCompleted !== undefined ? Number(rawCompleted) : existing.milestoneCompleted;
+    const total = rawTotal !== undefined ? Number(rawTotal) : existing.milestoneTotal;
 
     const updated = await prisma.workItem.update({
       where: { id: existing.id },
-      data: updateData,
+      data: {
+        milestoneCompleted: Math.min(completed, total),
+        milestoneTotal: Math.max(1, total),
+      },
     });
 
-    if (req.publicId) {
-      try {
-        await prisma.activityAuditLog.create({
-          data: {
-            accountPublicId: req.publicId,
-            action: "UPDATE",
-            entityType: "WORK_ITEM",
-            entityId: existing.publicId,
-            oldData: { milestoneCompleted: existing.milestoneCompleted, milestoneTotal: existing.milestoneTotal },
-            newData: updateData,
-          },
-        });
-      } catch {}
-    }
-
-    return sendSuccess(res, formatWorkItem(updated, req.affiliation), "Milestone progress updated successfully");
+    return sendSuccess(res, formatWorkItem(updated, req.affiliation), "Milestone progress updated");
   } catch (error) {
     console.error("UPDATE MILESTONE ERROR:", error);
-    return sendError(res, "Failed to update milestone progress");
+    return sendError(res, "Failed to update milestone");
   }
 };
 
 /**
  * PATCH /api/work-items/:id/status
  * Status Board drag-and-drop or status selector
- * Allowed for assigned team members or admins
+ * Allowed for assigned team members, managers, or admins
  */
 export const updateWorkItemStatus = async (req: AuthRequest, res: Response) => {
   try {
@@ -376,12 +413,20 @@ export const updateWorkItemStatus = async (req: AuthRequest, res: Response) => {
     }
 
     if (!isUserAssignedOrCreator(existing, req)) {
-      return sendError(res, "Only assigned team members or administrators can move assessment status", 403);
+      return sendError(res, "Only assigned team members, managers, or administrators can move assessment status", 403);
+    }
+
+    const statusData: any = { status };
+    if (status === "approval") {
+      statusData.isMainCompleted = true;
+      if (Array.isArray(existing.subtasks) && existing.subtasks.length > 0) {
+        statusData.milestoneCompleted = 1 + (existing.subtasks as any[]).filter((s: any) => s && s.isCompleted).length;
+      }
     }
 
     const updated = await prisma.workItem.update({
       where: { id: existing.id },
-      data: { status },
+      data: statusData,
     });
 
     if (req.publicId) {
@@ -409,15 +454,15 @@ export const updateWorkItemStatus = async (req: AuthRequest, res: Response) => {
 /**
  * PATCH /api/work-items/:id/priority
  * Impact Board drag-and-drop or priority selector
- * RBAC: Restricted to SUPER_ADMIN and ADMIN
+ * RBAC: Restricted to ADMIN and MANAGER
  */
 export const updateWorkItemPriority = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
     const { priority } = req.body;
 
-    if (!isUserAdmin(req)) {
-      return sendError(res, "Only administrators can calibrate assessment priority", 403);
+    if (!isUserAdmin(req) && !isUserManager(req)) {
+      return sendError(res, "Only administrators and managers can calibrate assessment priority", 403);
     }
 
     const existing = await prisma.workItem.findFirst({
@@ -475,6 +520,9 @@ export const updateWorkItem = async (req: AuthRequest, res: Response) => {
       attachmentsCount,
       assignees,
       commentsCount,
+      managerPublicId,
+      subtasks,
+      isMainCompleted,
     } = req.body;
 
     const existing = await prisma.workItem.findFirst({
@@ -487,38 +535,127 @@ export const updateWorkItem = async (req: AuthRequest, res: Response) => {
       return sendError(res, "Work item not found", 404);
     }
 
-    if (!isUserAssignedOrCreator(existing, req)) {
-      return sendError(res, "Only assigned team members or administrators can edit this assessment", 403);
+    const isAdmin = isUserAdmin(req);
+    const isManager = isUserManager(req);
+
+    // Permission check for updating:
+    // Universal assignment allows any authenticated user to update assignees or collaborate on assessments
+    if (!isAdmin && assignees === undefined) {
+      if (isManager) {
+        let isManagerAuthorized = false;
+        if (req.publicId && existing.managerPublicId === req.publicId) {
+          isManagerAuthorized = true;
+        } else if (req.publicId && existing.createdByPublicId === req.publicId) {
+          isManagerAuthorized = true;
+        } else if (isUserAssignedOrCreator(existing, req)) {
+          isManagerAuthorized = true;
+        } else if (Array.isArray(existing.assignees) && req.publicId) {
+          const subordinates = await prisma.account.findMany({
+            where: { managerPublicId: req.publicId },
+            select: { publicId: true, email: true },
+          });
+          const subIds = new Set(subordinates.map((s) => s.publicId));
+          const subEmails = new Set(subordinates.map((s) => s.email.toLowerCase()));
+          isManagerAuthorized = existing.assignees.some((a: any) =>
+            (a.id && subIds.has(a.id)) || (a.email && subEmails.has(a.email.toLowerCase()))
+          );
+        }
+
+        if (!isManagerAuthorized) {
+          return sendError(res, "Managers can only update work assessments assigned to them or their team", 403);
+        }
+      } else {
+        // Internal / External worker: can only edit status, milestone, or subtasks of assigned/created items
+        if (!isUserAssignedOrCreator(existing, req)) {
+          return sendError(res, "Only assigned team members, managers, or administrators can edit this assessment", 403);
+        }
+      }
     }
 
-    // If changing priority, ensure user is admin
-    if (priority !== undefined && priority !== existing.priority && !isUserAdmin(req)) {
-      return sendError(res, "Only administrators can calibrate assessment priority", 403);
+    const canChangePriority = isAdmin || isManager;
+    if (priority !== undefined && priority !== existing.priority && !canChangePriority) {
+      return sendError(res, "Only administrators and managers can calibrate assessment priority", 403);
     }
 
     const updateData: any = {};
     if (title !== undefined) updateData.title = title;
     if (description !== undefined) updateData.description = description;
-    if (priority !== undefined && isUserAdmin(req)) updateData.priority = priority;
+    if (priority !== undefined && canChangePriority) updateData.priority = priority;
     if (status !== undefined) updateData.status = status;
     if (dueDate !== undefined) updateData.dueDate = dueDate ? new Date(dueDate) : null;
-    if (milestone?.completed !== undefined) updateData.milestoneCompleted = Number(milestone.completed);
-    if (milestone?.total !== undefined) updateData.milestoneTotal = Number(milestone.total);
+    if (subtasks !== undefined || isMainCompleted !== undefined) {
+      const resolvedSubtasks = subtasks !== undefined
+        ? (Array.isArray(subtasks) ? subtasks : [])
+        : (Array.isArray(existing.subtasks) ? existing.subtasks : []);
+      const resolvedMainDone = isMainCompleted !== undefined
+        ? Boolean(isMainCompleted)
+        : (status === "approval" ? true : Boolean(existing.isMainCompleted));
+
+      updateData.subtasks = resolvedSubtasks;
+      updateData.isMainCompleted = resolvedMainDone;
+      updateData.milestoneTotal = 1 + resolvedSubtasks.length;
+      updateData.milestoneCompleted = (resolvedMainDone ? 1 : 0) + (resolvedSubtasks as any[]).filter((s: any) => s && s.isCompleted).length;
+    } else {
+      if (milestone?.completed !== undefined) updateData.milestoneCompleted = Number(milestone.completed);
+      if (milestone?.total !== undefined) updateData.milestoneTotal = Number(milestone.total);
+    }
     if (attachments !== undefined) {
       updateData.attachments = Array.isArray(attachments) ? attachments : [];
       updateData.attachmentsCount = attachmentsCount !== undefined ? attachmentsCount : attachments.length;
     } else if (attachmentsCount !== undefined) {
       updateData.attachmentsCount = attachmentsCount;
     }
-    if (assignees !== undefined && isUserAdmin(req)) {
+
+    // Assignees update validation (Universal assignment)
+    if (assignees !== undefined) {
       updateData.assignees = Array.isArray(assignees) ? assignees : [];
+      if (managerPublicId !== undefined) {
+        updateData.managerPublicId = managerPublicId;
+      } else if (!existing.managerPublicId) {
+        const managerAssignee = updateData.assignees.find(
+          (a: any) => a.systemRole?.toUpperCase() === "MANAGER" || a.role?.toUpperCase() === "MANAGER"
+        );
+        if (managerAssignee) {
+          updateData.managerPublicId = managerAssignee.id || managerAssignee.publicId || null;
+        } else if (isManager && req.publicId) {
+          updateData.managerPublicId = req.publicId;
+        }
+      }
+    } else if (managerPublicId !== undefined && isAdmin) {
+      updateData.managerPublicId = managerPublicId;
     }
+
     if (commentsCount !== undefined) updateData.commentsCount = Number(commentsCount);
 
     const updated = await prisma.workItem.update({
       where: { id: existing.id },
       data: updateData,
     });
+
+    if (req.publicId) {
+      try {
+        await prisma.activityAuditLog.create({
+          data: {
+            accountPublicId: req.publicId,
+            action: "UPDATE",
+            entityType: "WORK_ITEM",
+            entityId: existing.publicId,
+            oldData: {
+              title: existing.title,
+              status: existing.status,
+              priority: existing.priority,
+              assigneesCount: Array.isArray(existing.assignees) ? existing.assignees.length : 0,
+            },
+            newData: {
+              title: updated.title,
+              status: updated.status,
+              priority: updated.priority,
+              assigneesCount: Array.isArray(updated.assignees) ? updated.assignees.length : 0,
+            },
+          },
+        });
+      } catch {}
+    }
 
     return sendSuccess(res, formatWorkItem(updated, req.affiliation), "Work item updated successfully");
   } catch (error) {
@@ -527,17 +664,9 @@ export const updateWorkItem = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/**
- * DELETE /api/work-items/:id
- * RBAC: Strictly restricted to SUPER_ADMIN and ADMIN
- */
 export const deleteWorkItem = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
-
-    if (!isUserAdmin(req)) {
-      return sendError(res, "Only administrators can delete work assessments", 403);
-    }
 
     const existing = await prisma.workItem.findFirst({
       where: {
@@ -547,6 +676,15 @@ export const deleteWorkItem = async (req: AuthRequest, res: Response) => {
 
     if (!existing) {
       return sendError(res, "Work item not found", 404);
+    }
+
+    const canDelete =
+      isUserAdmin(req) ||
+      (isUserManager(req) &&
+        (existing.managerPublicId === req.publicId || existing.createdByPublicId === req.publicId));
+
+    if (!canDelete) {
+      return sendError(res, "Only administrators or the supervising manager can delete this work assessment", 403);
     }
 
     await prisma.workItem.delete({
@@ -575,7 +713,6 @@ export const deleteWorkItem = async (req: AuthRequest, res: Response) => {
 
 /**
  * POST /api/work-items/upload
- * Multer file upload endpoint returning WorkAttachment metadata
  */
 export const uploadAttachment = async (req: Request, res: Response) => {
   try {

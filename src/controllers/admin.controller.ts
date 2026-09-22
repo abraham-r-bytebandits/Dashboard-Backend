@@ -8,12 +8,29 @@ import { sendCredentialsEmail } from "../utils/mailer";
 import { parsePagination } from "../utils/pagination";
 
 /**
- * Create a new user account (SUPER_ADMIN only)
+ * Create a new user account (Admin only)
  * Generates a random password and sends credentials via email
  */
 export const createUser = async (req: AuthRequest, res: Response) => {
   try {
-    const { firstName, lastName, email, phone, username, role, password, functionalRole, affiliation } = req.body;
+    const {
+      firstName,
+      lastName,
+      email,
+      phone,
+      username,
+      role,
+      password,
+      functionalRole,
+      affiliation,
+      managerPublicId,
+      accessiblePages,
+    } = req.body;
+
+    // Determine normalized affiliation
+    let userAffiliation = affiliation || "internal";
+    if (role === "EXTERNAL_USER") userAffiliation = "external";
+    if (role === "INTERNAL_USER") userAffiliation = "internal";
 
     // Check for existing account by email or username
     if (email) {
@@ -22,7 +39,6 @@ export const createUser = async (req: AuthRequest, res: Response) => {
       });
       if (existingEmail) {
         if (existingEmail.status === "DELETED" || existingEmail.deletedAt !== null) {
-          // Free up the email and username on the soft-deleted account
           const deletedSuffix = `_deleted_${Date.now()}`;
           await prisma.account.update({
             where: { id: existingEmail.id },
@@ -47,7 +63,6 @@ export const createUser = async (req: AuthRequest, res: Response) => {
     });
     if (existingUsername) {
       if (existingUsername.status === "DELETED" || existingUsername.deletedAt !== null) {
-        // Free up the username on the soft-deleted account
         const deletedSuffix = `_deleted_${Date.now()}`;
         await prisma.account.update({
           where: { id: existingUsername.id },
@@ -61,7 +76,7 @@ export const createUser = async (req: AuthRequest, res: Response) => {
     }
 
     // Use provided password or generate random password
-    const rawPassword = password || crypto.randomBytes(8).toString("hex"); // 16-char password fallback
+    const rawPassword = password || crypto.randomBytes(8).toString("hex");
     const hashedPassword = await bcrypt.hash(rawPassword, 10);
 
     const account = await prisma.$transaction(async (tx) => {
@@ -72,6 +87,8 @@ export const createUser = async (req: AuthRequest, res: Response) => {
           username: accountUsername,
           status: "ACTIVE",
           isEmailVerified: !!email,
+          managerPublicId: managerPublicId || null,
+          accessiblePages: accessiblePages && Array.isArray(accessiblePages) ? accessiblePages : undefined,
           credential: {
             create: {
               passwordHash: hashedPassword,
@@ -83,7 +100,7 @@ export const createUser = async (req: AuthRequest, res: Response) => {
               lastName,
               phone: phone || null,
               functionalRole: functionalRole || null,
-              affiliation: affiliation || "internal",
+              affiliation: userAffiliation,
             },
           },
         },
@@ -126,17 +143,23 @@ export const createUser = async (req: AuthRequest, res: Response) => {
       await sendCredentialsEmail(email, accountUsername, rawPassword);
     }
 
-    return sendCreated(res, {
-      publicId: account.publicId,
-      email: account.email,
-      username: account.username,
-      role,
-      firstName,
-      lastName,
-      functionalRole: account.profile?.functionalRole || null,
-      affiliation: account.profile?.affiliation || "internal",
-      ...(email ? {} : { temporaryPassword: rawPassword }),
-    }, "User created successfully");
+    return sendCreated(
+      res,
+      {
+        publicId: account.publicId,
+        email: account.email,
+        username: account.username,
+        role,
+        firstName,
+        lastName,
+        functionalRole: account.profile?.functionalRole || null,
+        affiliation: userAffiliation,
+        managerPublicId: account.managerPublicId || null,
+        accessiblePages: account.accessiblePages || null,
+        ...(email ? {} : { temporaryPassword: rawPassword }),
+      },
+      "User created successfully"
+    );
   } catch (error) {
     console.error("CREATE USER ERROR:", error);
     return sendError(res, "Failed to create user");
@@ -144,7 +167,7 @@ export const createUser = async (req: AuthRequest, res: Response) => {
 };
 
 /**
- * List all users with their roles (SUPER_ADMIN only)
+ * List all users with their roles, managers, and accessible pages (Admin only)
  */
 export const listUsers = async (req: AuthRequest, res: Response) => {
   try {
@@ -155,6 +178,9 @@ export const listUsers = async (req: AuthRequest, res: Response) => {
         where: { status: { not: "DELETED" } },
         include: {
           profile: true,
+          manager: {
+            include: { profile: true },
+          },
           roles: {
             include: { role: true },
           },
@@ -168,27 +194,38 @@ export const listUsers = async (req: AuthRequest, res: Response) => {
       }),
     ]);
 
-    const formatted = users.map((u) => ({
-      publicId: u.publicId,
-      email: u.email,
-      username: u.username,
-      status: u.status,
-      isEmailVerified: u.isEmailVerified,
-      createdAt: u.createdAt,
-      profile: u.profile
-        ? {
-            firstName: u.profile.firstName,
-            lastName: u.profile.lastName,
-            phone: u.profile.phone,
-            profileImage: u.profile.profileImage,
-            functionalRole: u.profile.functionalRole || null,
-            affiliation: u.profile.affiliation || "internal",
-          }
-        : null,
-      functionalRole: u.profile?.functionalRole || null,
-      affiliation: u.profile?.affiliation || "internal",
-      roles: u.roles.map((r) => r.role.name),
-    }));
+    const formatted = users.map((u) => {
+      const managerName = u.manager
+        ? (u.manager.profile
+            ? `${u.manager.profile.firstName} ${u.manager.profile.lastName}`.trim()
+            : u.manager.username)
+        : null;
+
+      return {
+        publicId: u.publicId,
+        email: u.email,
+        username: u.username,
+        status: u.status,
+        isEmailVerified: u.isEmailVerified,
+        createdAt: u.createdAt,
+        managerPublicId: u.managerPublicId,
+        managerName,
+        accessiblePages: u.accessiblePages,
+        profile: u.profile
+          ? {
+              firstName: u.profile.firstName,
+              lastName: u.profile.lastName,
+              phone: u.profile.phone,
+              profileImage: u.profile.profileImage,
+              functionalRole: u.profile.functionalRole || null,
+              affiliation: u.profile.affiliation || "internal",
+            }
+          : null,
+        functionalRole: u.profile?.functionalRole || null,
+        affiliation: u.profile?.affiliation || "internal",
+        roles: u.roles.map((r) => r.role.name),
+      };
+    });
 
     return sendPaginated(res, formatted, total, page, pageSize);
   } catch (error) {
@@ -198,7 +235,7 @@ export const listUsers = async (req: AuthRequest, res: Response) => {
 };
 
 /**
- * Get user by publicId (SUPER_ADMIN only)
+ * Get user by publicId (Admin only)
  */
 export const getUserById = async (req: AuthRequest, res: Response) => {
   try {
@@ -208,6 +245,9 @@ export const getUserById = async (req: AuthRequest, res: Response) => {
       where: { publicId },
       include: {
         profile: true,
+        manager: {
+          include: { profile: true },
+        },
         roles: {
           include: {
             role: {
@@ -227,6 +267,12 @@ export const getUserById = async (req: AuthRequest, res: Response) => {
       return sendError(res, "User not found", 404);
     }
 
+    const managerName = user.manager
+      ? (user.manager.profile
+          ? `${user.manager.profile.firstName} ${user.manager.profile.lastName}`.trim()
+          : user.manager.username)
+      : null;
+
     const formatted = {
       publicId: user.publicId,
       email: user.email,
@@ -235,6 +281,9 @@ export const getUserById = async (req: AuthRequest, res: Response) => {
       isEmailVerified: user.isEmailVerified,
       lastLoginAt: user.lastLoginAt,
       createdAt: user.createdAt,
+      managerPublicId: user.managerPublicId,
+      managerName,
+      accessiblePages: user.accessiblePages,
       profile: user.profile
         ? {
             firstName: user.profile.firstName,
@@ -243,8 +292,12 @@ export const getUserById = async (req: AuthRequest, res: Response) => {
             profileImage: user.profile.profileImage,
             dateOfBirth: user.profile.dateOfBirth,
             gender: user.profile.gender,
+            functionalRole: user.profile.functionalRole || null,
+            affiliation: user.profile.affiliation || "internal",
           }
         : null,
+      functionalRole: user.profile?.functionalRole || null,
+      affiliation: user.profile?.affiliation || "internal",
       roles: user.roles.map((r) => r.role.name),
       permissions: Array.from(
         new Set(
@@ -264,8 +317,7 @@ export const getUserById = async (req: AuthRequest, res: Response) => {
 };
 
 /**
- * Update a user's role (SUPER_ADMIN only)
- * Cannot change a SUPER_ADMIN's role
+ * Update a user's role (Admin only)
  */
 export const updateUserRole = async (req: AuthRequest, res: Response) => {
   try {
@@ -281,12 +333,6 @@ export const updateUserRole = async (req: AuthRequest, res: Response) => {
 
     if (!user || user.status === "DELETED") {
       return sendError(res, "User not found", 404);
-    }
-
-    // Prevent changing SUPER_ADMIN role
-    const isSuperAdmin = user.roles.some((r) => r.role.name === "SUPER_ADMIN");
-    if (isSuperAdmin) {
-      return sendError(res, "Cannot change SUPER_ADMIN role", 403);
     }
 
     // Prevent changing own role
@@ -337,8 +383,7 @@ export const updateUserRole = async (req: AuthRequest, res: Response) => {
 };
 
 /**
- * Soft-delete a user account (SUPER_ADMIN only)
- * Cannot delete SUPER_ADMIN accounts
+ * Soft-delete a user account (Admin only)
  */
 export const deleteUser = async (req: AuthRequest, res: Response) => {
   try {
@@ -353,12 +398,6 @@ export const deleteUser = async (req: AuthRequest, res: Response) => {
 
     if (!user || user.status === "DELETED") {
       return sendError(res, "User not found", 404);
-    }
-
-    // Prevent deleting SUPER_ADMIN
-    const isSuperAdmin = user.roles.some((r) => r.role.name === "SUPER_ADMIN");
-    if (isSuperAdmin) {
-      return sendError(res, "Cannot delete SUPER_ADMIN account", 403);
     }
 
     // Prevent self-deletion via admin route
@@ -394,12 +433,21 @@ export const deleteUser = async (req: AuthRequest, res: Response) => {
 };
 
 /**
- * Update user details (functionalRole, affiliation, profile fields) (SUPER_ADMIN only)
+ * Update user details (functionalRole, affiliation, managerPublicId, accessiblePages, profile fields) (Admin only)
  */
 export const updateUserDetails = async (req: AuthRequest, res: Response) => {
   try {
     const { publicId } = req.params;
-    const { firstName, lastName, phone, functionalRole, affiliation, status } = req.body;
+    const {
+      firstName,
+      lastName,
+      phone,
+      functionalRole,
+      affiliation,
+      managerPublicId,
+      accessiblePages,
+      status,
+    } = req.body;
 
     const existing = await prisma.account.findUnique({
       where: { publicId },
@@ -411,10 +459,15 @@ export const updateUserDetails = async (req: AuthRequest, res: Response) => {
     }
 
     await prisma.$transaction(async (tx) => {
-      if (status) {
+      const accountUpdates: any = {};
+      if (status !== undefined) accountUpdates.status = status;
+      if (managerPublicId !== undefined) accountUpdates.managerPublicId = managerPublicId || null;
+      if (accessiblePages !== undefined) accountUpdates.accessiblePages = accessiblePages && Array.isArray(accessiblePages) ? accessiblePages : null;
+
+      if (Object.keys(accountUpdates).length > 0) {
         await tx.account.update({
           where: { publicId },
-          data: { status },
+          data: accountUpdates,
         });
       }
 
@@ -426,10 +479,12 @@ export const updateUserDetails = async (req: AuthRequest, res: Response) => {
         if (functionalRole !== undefined) updateData.functionalRole = functionalRole;
         if (affiliation !== undefined) updateData.affiliation = affiliation;
 
-        await tx.userProfile.update({
-          where: { accountPublicId: publicId },
-          data: updateData,
-        });
+        if (Object.keys(updateData).length > 0) {
+          await tx.userProfile.update({
+            where: { accountPublicId: publicId },
+            data: updateData,
+          });
+        }
       } else if (firstName || lastName || functionalRole || affiliation) {
         await tx.userProfile.create({
           data: {
@@ -449,7 +504,15 @@ export const updateUserDetails = async (req: AuthRequest, res: Response) => {
           action: "UPDATE",
           entityType: "USER",
           entityId: publicId,
-          newData: { firstName, lastName, functionalRole, affiliation, status },
+          newData: {
+            firstName,
+            lastName,
+            functionalRole,
+            affiliation,
+            managerPublicId,
+            accessiblePages,
+            status,
+          },
         },
       });
     });
@@ -458,20 +521,34 @@ export const updateUserDetails = async (req: AuthRequest, res: Response) => {
       where: { publicId },
       include: {
         profile: true,
+        manager: { include: { profile: true } },
         roles: { include: { role: true } },
       },
     });
 
-    return sendSuccess(res, {
-      publicId: updated!.publicId,
-      email: updated!.email,
-      username: updated!.username,
-      status: updated!.status,
-      functionalRole: updated!.profile?.functionalRole || null,
-      affiliation: updated!.profile?.affiliation || "internal",
-      profile: updated!.profile,
-      roles: updated!.roles.map((r) => r.role.name),
-    }, "User updated successfully");
+    const managerName = updated?.manager
+      ? (updated.manager.profile
+          ? `${updated.manager.profile.firstName} ${updated.manager.profile.lastName}`.trim()
+          : updated.manager.username)
+      : null;
+
+    return sendSuccess(
+      res,
+      {
+        publicId: updated!.publicId,
+        email: updated!.email,
+        username: updated!.username,
+        status: updated!.status,
+        functionalRole: updated!.profile?.functionalRole || null,
+        affiliation: updated!.profile?.affiliation || "internal",
+        managerPublicId: updated!.managerPublicId,
+        managerName,
+        accessiblePages: updated!.accessiblePages,
+        profile: updated!.profile,
+        roles: updated!.roles.map((r) => r.role.name),
+      },
+      "User updated successfully"
+    );
   } catch (error) {
     console.error("UPDATE USER DETAILS ERROR:", error);
     return sendError(res, "Failed to update user details");

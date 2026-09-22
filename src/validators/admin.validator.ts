@@ -28,16 +28,18 @@ export const createUserSchema = z.object({
   phone: phoneSchema,
   username: z.string().min(3, "Username must be at least 3 characters").optional().or(z.literal("")),
   password: passwordSchema,
-  role: z.enum(["SUPER_ADMIN", "ADMIN", "MANAGER", "ACCOUNTANT", "VIEWER", "USER"]),
-  functionalRole: z.string().optional(),
+  role: z.enum(["ADMIN", "MANAGER", "INTERNAL_USER", "EXTERNAL_USER", "SUPER_ADMIN", "USER"]),
+  functionalRole: z.string().optional().nullable(),
   affiliation: affiliationEnum,
+  managerPublicId: z.string().optional().nullable(),
+  accessiblePages: z.array(z.string()).optional().nullable(),
 }).refine(
   (data) => data.email || data.phone || data.username,
   { message: "At least one of email, phone, or username is required" }
 );
 
 export const updateUserRoleSchema = z.object({
-  role: z.enum(["SUPER_ADMIN", "ADMIN", "MANAGER", "ACCOUNTANT", "VIEWER", "USER"]),
+  role: z.enum(["ADMIN", "MANAGER", "INTERNAL_USER", "EXTERNAL_USER", "SUPER_ADMIN", "USER"]),
 });
 
 export const updateUserDetailsSchema = z.object({
@@ -56,6 +58,8 @@ export const updateUserDetailsSchema = z.object({
     (val) => (typeof val === "string" ? val.toLowerCase() : val),
     z.enum(["internal", "external"]).optional()
   ),
+  managerPublicId: z.string().optional().nullable(),
+  accessiblePages: z.array(z.string()).optional().nullable(),
   status: z.enum(["ACTIVE", "SUSPENDED", "PENDING_VERIFICATION", "LOCKED"]).optional(),
 });
 

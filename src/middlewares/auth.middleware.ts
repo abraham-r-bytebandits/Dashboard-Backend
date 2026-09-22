@@ -87,7 +87,7 @@ export const authorize = (allowedRoles: string[]) => {
     const userRoles = req.roles || (req.role ? [req.role] : []);
 
     // SUPER_ADMIN implicitly has access to everything
-    if (userRoles.includes("SUPER_ADMIN")) {
+    if (userRoles.includes("SUPER_ADMIN") || userRoles.includes("ADMIN")) {
       return next();
     }
 
