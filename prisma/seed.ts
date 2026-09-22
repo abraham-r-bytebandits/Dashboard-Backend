@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, Prisma } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 
@@ -172,7 +172,7 @@ async function main() {
         status: "ACTIVE",
         isEmailVerified: true,
         managerPublicId: params.managerPublicId || null,
-        accessiblePages: params.accessiblePages || null,
+        accessiblePages: params.accessiblePages || Prisma.JsonNull,
         credential: {
           create: {
             passwordHash,

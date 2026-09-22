@@ -1,6 +1,6 @@
 -- AlterTable
-ALTER TABLE `UserProfile` ADD COLUMN IF NOT EXISTS `functionalRole` VARCHAR(191) NULL,
-    ADD COLUMN IF NOT EXISTS `affiliation` VARCHAR(191) NULL DEFAULT 'internal';
+ALTER TABLE `UserProfile` ADD COLUMN `functionalRole` VARCHAR(191) NULL,
+    ADD COLUMN `affiliation` VARCHAR(191) NULL DEFAULT 'internal';
 
 -- CreateTable
 CREATE TABLE IF NOT EXISTS `FunctionalRole` (

@@ -15,6 +15,8 @@ import imageRoutes from "./routes/image.routes";
 import siteRoutes from "./routes/site.routes";
 import contactRoutes from "./routes/contact.routes";
 import workItemRoutes from "./routes/workItem.routes";
+import leadRoutes from "./routes/lead.routes";
+import driveRoutes from "./routes/drive.routes";
 import path from "path";
 import { rateLimit } from "express-rate-limit";
 import helmet from "helmet";
@@ -94,6 +96,8 @@ app.use("/api/image", imageRoutes);
 app.use("/api/sites", siteRoutes);
 app.use("/api/contacts", contactRoutes);
 app.use("/api/work-items", workItemRoutes);
+app.use("/api/leads", leadRoutes);
+app.use("/api/drive", driveRoutes);
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
 export default app;

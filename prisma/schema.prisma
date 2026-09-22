@@ -149,6 +149,7 @@ model Account {
   generatedReports     Report[]       @relation("GeneratedReports")
   createdSites         Site[]         @relation("CreatedSites")
   createdWorkItems     WorkItem[]     @relation("CreatedWorkItems")
+  assignedLeads        Lead[]         @relation("AssignedLeads")
   managerPublicId      String?
   manager              Account?       @relation("ManagerSubordinates", fields: [managerPublicId], references: [publicId], onDelete: SetNull)
   subordinates         Account[]      @relation("ManagerSubordinates")
@@ -672,5 +673,31 @@ model WorkItem {
   @@index([priority])
   @@index([managerPublicId])
   @@index([createdByPublicId])
+  @@index([createdAt])
+}
+
+//////////////////////////////////////////////////
+// SALES LEADS
+//////////////////////////////////////////////////
+
+model Lead {
+  id             BigInt   @id @default(autoincrement())
+  publicId       String   @unique @default(uuid())
+  companyName    String
+  industry       String   @default("Technology")
+  email          String
+  phone          String?
+  clientName     String
+  service        String   @default("Web Development")
+  description    String?  @db.Text
+  status         String   @default("enquired")
+  assignedUserId String?
+  assignedUser   Account? @relation("AssignedLeads", fields: [assignedUserId], references: [publicId], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([assignedUserId])
   @@index([createdAt])
 }
